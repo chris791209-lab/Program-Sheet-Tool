@@ -152,15 +152,15 @@ if uploaded_file is not None:
                     worksheet.write(start_row + 4, start_col + 1, str(row.get('Vendor Product Description *', '')).replace('nan',''), cell_format)
                     
                     # FCA & RETAIL (第 5 列)
-                    worksheet.write(start_row + 5, start_col, "FCA $:", label_format)
+                    worksheet.write(start_row + 5, start_col, "FCA $:", red_label_format)
                     worksheet.write(start_row + 5, start_col + 1, str(row.get('FCA Factory City Unit Cost', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 5, start_col + 3, "RETAIL:", label_format)
+                    worksheet.write(start_row + 5, start_col + 3, "RETAIL:", red_label_format)
                     worksheet.write(start_row + 5, start_col + 4, str(row.get('Suggested Unit Retail', '')).replace('nan',''), cell_format)
                     
                     # Packaging & Red Seal (第 6 列)
                     worksheet.write(start_row + 6, start_col, "Packaging:", label_format)
                     worksheet.write(start_row + 6, start_col + 1, str(row.get('Retail Packaging Format (1) *', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 6, start_col + 3, "Red Seal:", red_label_format)
+                    worksheet.write(start_row + 6, start_col + 3, "Red Seal:", label_format)
                     worksheet.write(start_row + 6, start_col + 4, "", cell_format)
                     
                     # HS NO & Casepack (第 7 列)
@@ -174,7 +174,7 @@ if uploaded_file is not None:
                     # Material & QTY (第 8 列)
                     worksheet.write(start_row + 8, start_col, "Material:", label_format)
                     worksheet.write(start_row + 8, start_col + 1, str(row.get('Primary Raw Material Type', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 8, start_col + 3, "QTY:", label_format)
+                    worksheet.write(start_row + 8, start_col + 3, "QTY:", red_label_format)
                     worksheet.write(start_row + 8, start_col + 4, "", cell_format)
                     
                     # Remark (第 9 列)
