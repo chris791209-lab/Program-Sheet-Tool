@@ -11,7 +11,6 @@ st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
 st.title("🚀 Program Sheet 自動生成器")
 st.markdown("只需上傳 Data 檔案 (.xlsm 或 .xlsx) 與圖片壓縮檔，系統將瞬間為您排版並匯入圖片！")
 
-# 讓使用者上傳 Excel 與 ZIP 檔案
 uploaded_file = st.file_uploader("1. 請上傳包含資料的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
 uploaded_zip = st.file_uploader("2. (選填) 請上傳包含產品圖片的 .zip 壓縮檔", type=["zip"])
 
@@ -21,7 +20,6 @@ if uploaded_file is not None:
     if st.button("✨ 生成 Program Sheet"):
         with st.spinner("正在為您進行排版與處理圖片，請稍候..."):
             
-            # 1. 讀取 Excel 中名為 "Data" 的頁籤，跳過前兩列標題，並清除 DPCI 為空的列
             try:
                 df = pd.read_excel(uploaded_file, sheet_name="Data", skiprows=2, engine="openpyxl")
             except Exception as e:
@@ -31,46 +29,67 @@ if uploaded_file is not None:
             if 'DPCI' in df.columns:
                 df = df.dropna(subset=['DPCI'])
             
-            # 2. 如果有上傳 ZIP，在雲端建立一個暫存資料夾來解壓縮圖片
             temp_dir = None
             if uploaded_zip is not None:
-                temp_dir = tempfile.mkdtemp() # 建立隨機暫存資料夾
+                temp_dir = tempfile.mkdtemp()
                 with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
             
-            # 3. 準備 Excel 檔案 (XlsxWriter)
+            # 準備 Excel 檔案
             output = io.BytesIO()
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
             worksheet = workbook.add_worksheet('Program sheet')
             
-            # 設定基本格式
-            cell_format = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'text_wrap': True})
-            label_format = workbook.add_format({'bold': True, 'align': 'right'})
+            # ==========================================
+            # 🎨 【排版美化區】: 加入框線、底色與對齊設定
+            # ==========================================
+            # 資料儲存格：細框線、自動換行、垂直置中
+            cell_format = workbook.add_format({
+                'align': 'left', 
+                'valign': 'vcenter', 
+                'text_wrap': True,
+                'border': 1 
+            })
             
-            # 設定欄寬 (讓圖片跟文字有足夠的空間)
-            worksheet.set_column('A:A', 13) # 標籤欄
-            worksheet.set_column('B:B', 22) # 資料欄1
-            worksheet.set_column('D:D', 13) # 標籤欄
-            worksheet.set_column('E:E', 22) # 資料欄2
+            # 標籤儲存格：粗體、淺灰底色、細框線、靠右對齊
+            label_format = workbook.add_format({
+                'bold': True, 
+                'align': 'right', 
+                'valign': 'vcenter',
+                'border': 1,
+                'bg_color': '#F2F2F2' 
+            })
             
-            # 4. 核心排版邏輯
+            # 設定大標題
+            title_format = workbook.add_format({'bold': True, 'font_size': 14})
+            worksheet.write(0, 0, "2025 Program Sheet Auto-Generated", title_format)
+
+            # 動態設定欄寬 (設定 3 個區塊，每個區塊 6 欄)
+            for i in range(3):
+                base = i * 6
+                worksheet.set_column(base, base, 13)       # 標籤 1 (如 DPCI)
+                worksheet.set_column(base + 1, base + 1, 22) # 資料 1
+                worksheet.set_column(base + 2, base + 2, 2)  # 卡片內部分隔小縫隙
+                worksheet.set_column(base + 3, base + 3, 13) # 標籤 2 (如 Style)
+                worksheet.set_column(base + 4, base + 4, 22) # 資料 2
+                worksheet.set_column(base + 5, base + 5, 4)  # 卡片與卡片之間的大分隔
+            
             item_index = 0
             for index, row in df.iterrows():
                 try:
                     block_row = item_index // 3
-                    block_col = item_index // 3 * 0 + (item_index % 3) # 修正換欄邏輯
+                    block_col = item_index % 3
                     
-                    # 基準點座標 (Python 是從 0 開始算，所以原 VBA 的 3 變成 2，1 變成 0)
-                    start_row = 2 + (block_row * 11)
-                    start_col = 0 + (block_col * 5) # 依據原本的寬度為 5 欄間距
+                    # 基準點座標 (加入間距，每張卡片寬 6 欄，高 12 列)
+                    start_row = 2 + (block_row * 12)
+                    start_col = block_col * 6
+                    
+                    # 統一設定這張卡片的每一列高度為 20，讓畫面不擁擠
+                    for r in range(start_row, start_row + 10):
+                        worksheet.set_row(r, 20)
                     
                     dpci_val = str(row.get('DPCI', '')).strip()
                     if dpci_val == 'nan': dpci_val = ''
-                    
-                    # ========================================================
-                    # 【資料寫入區】: 依據版面配置，填入標籤與 Data 表的欄位值
-                    # 注意: row.get('欄位名稱', '') 中的名稱必須與 Data 頁籤的標題完全一致
-                    # ========================================================
                     
                     # 1. DPCI & 2. Style (第 0 列)
                     worksheet.write(start_row, start_col, "DPCI:", label_format)
@@ -82,7 +101,7 @@ if uploaded_file is not None:
                     worksheet.write(start_row + 1, start_col, "UPC#:", label_format)
                     worksheet.write(start_row + 1, start_col + 1, str(row.get('Barcode', '')).replace('nan',''), cell_format)
                     worksheet.write(start_row + 2, start_col, "TCIN:", label_format)
-                    worksheet.write(start_row + 2, start_col + 1, "", cell_format) # 若無 TCIN 欄位先留白
+                    worksheet.write(start_row + 2, start_col + 1, "", cell_format)
                     
                     # 3. Description (第 3 列)
                     worksheet.write(start_row + 3, start_col, "Description:", label_format)
@@ -98,33 +117,37 @@ if uploaded_file is not None:
                     worksheet.write(start_row + 5, start_col, "Packaging:", label_format)
                     worksheet.write(start_row + 5, start_col + 1, str(row.get('Retail Packaging Format (1) *', '')).replace('nan',''), cell_format)
                     worksheet.write(start_row + 5, start_col + 3, "Red Seal:", label_format)
+                    worksheet.write(start_row + 5, start_col + 4, "", cell_format)
                     
                     # 7. HS NO & 8. Casepack (第 6 列)
                     worksheet.write(start_row + 6, start_col, "HS NO:", label_format)
                     worksheet.write(start_row + 6, start_col + 1, str(row.get('HTS Code', '')).replace('nan',''), cell_format)
                     worksheet.write(start_row + 6, start_col + 3, "Casepack:", label_format)
-                    # 裝箱數合併範例 (若欄位名稱不同請自行修改字串)
                     casepack = str(row.get('Case Unit Quantity', '')).replace('nan','')
                     innerpack = str(row.get('Inner Pack Unit Quantity', '')).replace('nan','')
-                    if casepack and innerpack:
-                        worksheet.write(start_row + 6, start_col + 4, f"{casepack} / {innerpack}", cell_format)
+                    worksheet.write(start_row + 6, start_col + 4, f"{casepack} / {innerpack}" if casepack else "", cell_format)
                     
                     # 9. Material & 11. QTY (第 7 列)
                     worksheet.write(start_row + 7, start_col, "Material:", label_format)
                     worksheet.write(start_row + 7, start_col + 1, str(row.get('Primary Raw Material Type', '')).replace('nan',''), cell_format)
                     worksheet.write(start_row + 7, start_col + 3, "QTY:", label_format)
+                    worksheet.write(start_row + 7, start_col + 4, "", cell_format)
                     
                     # 15. Remark (第 8 列)
                     worksheet.write(start_row + 8, start_col, "Remark:", label_format)
+                    worksheet.write(start_row + 8, start_col + 1, "", cell_format)
+                    worksheet.write(start_row + 8, start_col + 3, "", cell_format) # 空白補齊右側框線
+                    worksheet.write(start_row + 8, start_col + 4, "", cell_format) # 空白補齊右側框線
                     
                     # 10. Factory (第 9 列)
                     worksheet.write(start_row + 9, start_col, "Factory:", label_format)
                     worksheet.write(start_row + 9, start_col + 1, str(row.get('Factory Name', '')).replace('nan',''), cell_format)
+                    worksheet.write(start_row + 9, start_col + 3, "", cell_format) # 空白補齊右側框線
+                    worksheet.write(start_row + 9, start_col + 4, "", cell_format) # 空白補齊右側框線
 
                     # --- 匯入圖片邏輯 ---
                     if temp_dir and dpci_val:
                         img_path = None
-                        # 尋找檔名為 DPCI.jpg 或 DPCI.png 的圖片
                         for root, dirs, files in os.walk(temp_dir):
                             for file in files:
                                 if file.lower() == f"{dpci_val.lower()}.jpg" or file.lower() == f"{dpci_val.lower()}.png":
@@ -135,7 +158,6 @@ if uploaded_file is not None:
                         
                         if img_path:
                             # 插入圖片 (放在 Style 的下方位置)
-                            # 如果圖片太大或太小，請調整 x_scale 與 y_scale 的數值 (例如 0.2 或 0.1)
                             worksheet.insert_image(start_row + 1, start_col + 4, img_path, 
                                                    {'x_scale': 0.16, 'y_scale': 0.16, 'x_offset': 5, 'y_offset': 5})
                     
