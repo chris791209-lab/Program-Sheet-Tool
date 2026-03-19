@@ -28,7 +28,6 @@ if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
 else:
     uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
 
-# 💡【修改點】移除步驟 3 的微調拉桿，因為內部已設定 100% 完美置中與無損畫質
 if uploaded_data is not None:
     st.success("✅ 資料檔已就緒！")
     
@@ -79,7 +78,6 @@ if uploaded_data is not None:
                                         try:
                                             img = image_loader.get(img_cell)
                                             safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
-                                            # 💡【修改點】強制儲存為無損 PNG 格式！這將完美保留透明度與最高畫質
                                             img_path = os.path.join(temp_dir, f"{safe_name}.png")
                                             img.save(img_path, "PNG")
                                         except Exception:
@@ -177,7 +175,8 @@ if uploaded_data is not None:
                 ws.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
                 ws.merge_range(1, 2, 1, 4, "", fmt['hdr_input']) 
                 ws.write(1, 6, "Vendor ID#:", fmt['hdr_lbl'])                 
-                ws.merge_range(1, 7, 1, 9, "1985373", fmt['hdr_input'])       
+                # 💡【修改點】原本的 "1985373" 已改為空字串 ""
+                ws.merge_range(1, 7, 1, 9, "", fmt['hdr_input'])       
 
                 ws.set_row(2, 20)
                 ws.merge_range(2, 0, 2, 1, "Sourcing:", fmt['hdr_lbl'])
