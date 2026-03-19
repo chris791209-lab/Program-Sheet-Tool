@@ -69,9 +69,6 @@ if uploaded_file is not None:
             create_fmt('fact_merge', 'label', left=2, right=2, bottom=2, bg_color='#FFC000')
 
             create_fmt('hdr_title', 'label', font_size=13, align='left')
-            # 💡【新增】針對 CATEGORY 下拉選單設計的大字體輸入框格式
-            create_fmt('hdr_title_input', 'label', font_size=13, align='left', bg_color='#F4F4F4', border=1)
-            
             create_fmt('hdr_lbl', 'label', align='left')
             create_fmt('hdr_input', 'data', align='left', bg_color='#F4F4F4', border=1)
 
@@ -119,11 +116,13 @@ if uploaded_file is not None:
                     ws.set_column(base + 4, base + 4, 22) 
                     ws.set_column(base + 5, base + 5, 4)  
 
-                # 💡【修改點】Row 0: 大標題拆分，並將右側設定為下拉選單
+                # 💡【修改點】Row 0: 大標題緊密結合與去底色
                 ws.set_row(0, 30)
-                ws.merge_range(0, 0, 0, 6, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
-                ws.merge_range(0, 7, 0, 16, "CATEGORY", fmt['hdr_title_input'])
-                ws.data_validation(0, 7, 0, 16, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
+                # 前半段標題縮小合併範圍至 0~2 (即 A, B, C 欄)
+                ws.merge_range(0, 0, 0, 2, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
+                # CATEGORY 緊接在後方 3~5 (即 D, E, F 欄)，並共用 hdr_title 格式 (無底色無外框)
+                ws.merge_range(0, 3, 0, 5, "CATEGORY", fmt['hdr_title'])
+                ws.data_validation(0, 3, 0, 5, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
 
                 # Row 1: Award Date & Vendor ID
                 ws.set_row(1, 20)
@@ -249,7 +248,6 @@ if uploaded_file is not None:
             # ========================================================
             factory_count = len(df['RawFactoryName'].unique())
             
-            # 第一步：建立 Master Sheet (總表，傳入完整 df)
             ws_master = workbook.add_worksheet('Master Sheet')
             draw_cards_on_sheet(ws_master, df)
             
@@ -260,7 +258,6 @@ if uploaded_file is not None:
             
             used_sheet_names = set(['Master Sheet'])
             
-            # 第二步：依據工廠名稱分組，獨立建立頁籤
             for factory, group_df in df.groupby('RawFactoryName'):
                 clean_name = str(factory).strip()
                 if not clean_name: clean_name = "Unknown Factory"
