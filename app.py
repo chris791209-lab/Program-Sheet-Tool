@@ -47,47 +47,40 @@ if uploaded_file is not None:
             worksheet.fit_to_pages(1, 0)
             
             # ========================================================
-            # 🎨 【排版美化設定區】
+            # 🎨 【排版美化設定區：智慧邊框生成系統】
+            # 消除內部細框，僅在卡片邊緣套用 2 號粗外框
             # ========================================================
-            # 1. 一般資料欄位 (取消 border 屬性，消除細框線)
-            cell_format = workbook.add_format({
-                'font_name': 'Arial',
-                'font_size': 10,
-                'align': 'left', 
-                'valign': 'vcenter', 
-                'text_wrap': True
-                # 已移除 'border': 1
-            })
+            # 基礎屬性 (沒有任何 border)
+            base_props = {
+                'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'right', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
+                'red_label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'font_color': '#FF0000', 'align': 'right', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
+                'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
+                'img': {'bg_color': '#FFFFFF'}
+            }
             
-            # 2. 一般標籤欄位 (使用粗外框線 border: 2)
-            label_format = workbook.add_format({
-                'font_name': 'Arial',
-                'font_size': 10,
-                'bold': True, 
-                'align': 'right', 
-                'valign': 'vcenter',
-                'border': 2,              # 2=中粗框線, 若想要更粗可改為 5
-                'bg_color': '#E7E6E6'
-            })
+            fmt = {}
+            def create_fmt(name, base, **kwargs):
+                p = base_props[base].copy()
+                p.update(kwargs)
+                fmt[name] = workbook.add_format(p)
+                
+            # 建立圖片區塊格式 (頂、左、右粗框，底部加一條細線與資料區隔)
+            create_fmt('img_top', 'img', top=2, left=2, right=2, bottom=1)
+            
+            # 建立各邊緣專用的格式 (組合出完美外圍粗框)
+            create_fmt('lbl_l', 'label', left=2)
+            create_fmt('lbl_in', 'label')
+            create_fmt('lbl_lb', 'label', left=2, bottom=2)
+            
+            create_fmt('rlbl_l', 'red_label', left=2)
+            create_fmt('rlbl_in', 'red_label')
+            
+            create_fmt('dat_in', 'data')
+            create_fmt('dat_r', 'data', right=2)
+            create_fmt('dat_b', 'data', bottom=2)
+            create_fmt('dat_rb', 'data', right=2, bottom=2)
 
-            # 3. 特殊紅色標籤 (使用粗外框線 border: 2)
-            red_label_format = workbook.add_format({
-                'font_name': 'Arial',
-                'font_size': 10,
-                'bold': True, 
-                'font_color': '#FF0000',
-                'align': 'right', 
-                'valign': 'vcenter',
-                'border': 2,
-                'bg_color': '#E7E6E6'
-            })
-            
-            # 4. 頂部圖片區塊格式 (可選配加上細外框把圖片區包起來)
-            img_placeholder_format = workbook.add_format({
-                'border': 1,              # 幫圖片預留區畫個細框，方便視覺辨識
-                'bg_color': '#FFFFFF'
-            })
-            
+            # 大標題
             title_format = workbook.add_format({'font_name': 'Arial', 'bold': True, 'font_size': 14})
             worksheet.write(0, 0, "2025 Program Sheet Auto-Generated", title_format)
 
@@ -101,6 +94,14 @@ if uploaded_file is not None:
                 worksheet.set_column(base + 4, base + 4, 22) 
                 worksheet.set_column(base + 5, base + 5, 4)  
             
+            # 專屬寫入小幫手 (確保每格都有正確的邊框)
+            def w_row(ws, s_row, s_col, r_off, c0, c1, c2, c3, c4, f0, f1, f2, f3, f4):
+                ws.write(s_row + r_off, s_col + 0, c0, fmt[f0])
+                ws.write(s_row + r_off, s_col + 1, c1, fmt[f1])
+                ws.write(s_row + r_off, s_col + 2, c2, fmt[f2]) # 隱藏的間距欄也套用格式以防斷線
+                ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
+                ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
+
             item_index = 0
             page_breaks = [] 
             
@@ -116,16 +117,12 @@ if uploaded_file is not None:
                     # ----------------------------------------------------
                     # 🖼️ 建立頂部圖片區 (第 0 列)
                     # ----------------------------------------------------
-                    # 強制設定第一列高度為 234 (約 312 像素)
-                    worksheet.set_row(start_row, 234)
-                    
-                    # 合併第 0 欄到第 4 欄作為圖片的放置區域
-                    worksheet.merge_range(start_row, start_col, start_row, start_col + 4, "", img_placeholder_format)
+                    worksheet.set_row(start_row, 234) # 完美 312 像素高度
+                    worksheet.merge_range(start_row, start_col, start_row, start_col + 4, "", fmt['img_top'])
                     
                     # ----------------------------------------------------
                     # 📝 建立下方資料區 (從第 1 列開始寫入)
                     # ----------------------------------------------------
-                    # 統一設定這張卡片下方資料列的高度為 22
                     for r in range(start_row + 1, start_row + 11):
                         worksheet.set_row(r, 22)
                     
@@ -134,62 +131,52 @@ if uploaded_file is not None:
                     
                     dpci_val = str(row.get('DPCI', '')).strip()
                     if dpci_val == 'nan': dpci_val = ''
+                    style_val = str(row.get('Manufacturer Style # *', '')).replace('nan','')
+                    upc_val = str(row.get('Barcode', '')).replace('nan','')
+                    desc_val = str(row.get('Vendor Product Description *', '')).replace('nan','')
+                    fca_val = str(row.get('FCA Factory City Unit Cost', '')).replace('nan','')
+                    retail_val = str(row.get('Suggested Unit Retail', '')).replace('nan','')
+                    pack_val = str(row.get('Retail Packaging Format (1) *', '')).replace('nan','')
+                    hs_val = str(row.get('HTS Code', '')).replace('nan','')
+                    case_q = str(row.get('Case Unit Quantity', '')).replace('nan','')
+                    inner_q = str(row.get('Inner Pack Unit Quantity', '')).replace('nan','')
+                    pack_str = f"{case_q} / {inner_q}" if case_q else ""
+                    mat_val = str(row.get('Primary Raw Material Type', '')).replace('nan','')
+                    factory_val = str(row.get('Factory Name', '')).replace('nan','')
                     
-                    # DPCI & Style (第 1 列)
-                    worksheet.write(start_row + 1, start_col, "DPCI:", label_format)
-                    worksheet.write(start_row + 1, start_col + 1, dpci_val, cell_format)
-                    worksheet.write(start_row + 1, start_col + 3, "Style:", label_format)
-                    worksheet.write(start_row + 1, start_col + 4, str(row.get('Manufacturer Style # *', '')).replace('nan',''), cell_format)
+                    # 利用小幫手寫入每一列資料，並指定對應的「邊緣格式」
+                    w_row(worksheet, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # UPC# & TCIN (第 2, 3 列)
-                    worksheet.write(start_row + 2, start_col, "UPC#:", label_format)
-                    worksheet.write(start_row + 2, start_col + 1, str(row.get('Barcode', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 3, start_col, "TCIN:", label_format)
-                    worksheet.write(start_row + 3, start_col + 1, "", cell_format)
+                    w_row(worksheet, start_row, start_col, 2, "UPC#:", upc_val, "", "", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
-                    # Description (第 4 列)
-                    worksheet.write(start_row + 4, start_col, "Description:", label_format)
-                    worksheet.write(start_row + 4, start_col + 1, str(row.get('Vendor Product Description *', '')).replace('nan',''), cell_format)
+                    w_row(worksheet, start_row, start_col, 3, "TCIN:", "", "", "", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
-                    # FCA & RETAIL (第 5 列)
-                    worksheet.write(start_row + 5, start_col, "FCA $:", red_label_format)
-                    worksheet.write(start_row + 5, start_col + 1, str(row.get('FCA Factory City Unit Cost', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 5, start_col + 3, "RETAIL:", red_label_format)
-                    worksheet.write(start_row + 5, start_col + 4, str(row.get('Suggested Unit Retail', '')).replace('nan',''), cell_format)
+                    w_row(worksheet, start_row, start_col, 4, "Description:", desc_val, "", "", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
-                    # Packaging & Red Seal (第 6 列)
-                    worksheet.write(start_row + 6, start_col, "Packaging:", label_format)
-                    worksheet.write(start_row + 6, start_col + 1, str(row.get('Retail Packaging Format (1) *', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 6, start_col + 3, "Red Seal:", label_format)
-                    worksheet.write(start_row + 6, start_col + 4, "", cell_format)
+                    w_row(worksheet, start_row, start_col, 5, "FCA $:", fca_val, "", "RETAIL:", retail_val,
+                          'rlbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
                     
-                    # HS NO & Casepack (第 7 列)
-                    worksheet.write(start_row + 7, start_col, "HS NO:", label_format)
-                    worksheet.write(start_row + 7, start_col + 1, str(row.get('HTS Code', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 7, start_col + 3, "Casepack:", label_format)
-                    casepack = str(row.get('Case Unit Quantity', '')).replace('nan','')
-                    innerpack = str(row.get('Inner Pack Unit Quantity', '')).replace('nan','')
-                    worksheet.write(start_row + 7, start_col + 4, f"{casepack} / {innerpack}" if casepack else "", cell_format)
+                    w_row(worksheet, start_row, start_col, 6, "Packaging:", pack_val, "", "Red Seal:", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
                     
-                    # Material & QTY (第 8 列)
-                    worksheet.write(start_row + 8, start_col, "Material:", label_format)
-                    worksheet.write(start_row + 8, start_col + 1, str(row.get('Primary Raw Material Type', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 8, start_col + 3, "QTY:", red_label_format)
-                    worksheet.write(start_row + 8, start_col + 4, "", cell_format)
+                    w_row(worksheet, start_row, start_col, 7, "HS NO:", hs_val, "", "Casepack:", pack_str,
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # Remark (第 9 列)
-                    worksheet.write(start_row + 9, start_col, "Remark:", label_format)
-                    worksheet.write(start_row + 9, start_col + 1, "", cell_format)
-                    worksheet.write(start_row + 9, start_col + 3, "", cell_format) 
-                    worksheet.write(start_row + 9, start_col + 4, "", cell_format) 
+                    w_row(worksheet, start_row, start_col, 8, "Material:", mat_val, "", "QTY:", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
                     
-                    # Factory (第 10 列)
-                    worksheet.write(start_row + 10, start_col, "Factory:", label_format)
-                    worksheet.write(start_row + 10, start_col + 1, str(row.get('Factory Name', '')).replace('nan',''), cell_format)
-                    worksheet.write(start_row + 10, start_col + 3, "", cell_format) 
-                    worksheet.write(start_row + 10, start_col + 4, "", cell_format) 
+                    w_row(worksheet, start_row, start_col, 9, "Remark:", "", "", "", "",
+                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
+                    
+                    # 第 10 列為最底層，必須加上 bottom 邊框封底
+                    w_row(worksheet, start_row, start_col, 10, "Factory:", factory_val, "", "", "",
+                          'lbl_lb', 'dat_b', 'dat_b', 'dat_b', 'dat_rb')
 
-                    # --- 匯入圖片 (位置改至最上方的圖片區) ---
+                    # --- 匯入圖片 ---
                     if temp_dir and dpci_val:
                         img_path = None
                         for root, dirs, files in os.walk(temp_dir):
@@ -201,9 +188,6 @@ if uploaded_file is not None:
                                 break
                         
                         if img_path:
-                            # 插入圖片 (放在 start_row 的圖片區內)
-                            # 如果您發現上傳的圖片太大或太小，可以微調 x_scale 與 y_scale
-                            # x_offset 與 y_offset 負責將圖片從格子的左上角稍微往中間推
                             worksheet.insert_image(start_row, start_col, img_path, 
                                                    {'x_scale': 0.28, 'y_scale': 0.28, 'x_offset': 15, 'y_offset': 15})
                     
