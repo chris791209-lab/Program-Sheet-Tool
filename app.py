@@ -9,7 +9,7 @@ import re
 import openpyxl
 from openpyxl_image_loader import SheetImageLoader
 from openpyxl.utils import get_column_letter
-from PIL import Image # 💡【新增】用於取得圖片真實尺寸
+from PIL import Image
 
 # --- 網頁介面設定 ---
 st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
@@ -29,8 +29,8 @@ else:
     uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
 
 st.markdown("### ⚙️ 步驟 3：微調與生成")
-# 💡【修改點】拉桿變為「佔比」，最高 1.0 (代表完美填滿且不超出邊界)
-image_scale = st.slider("🖼️ 調整圖片顯示佔比 (1.0 表示填滿空白格並置中)", min_value=0.1, max_value=1.0, value=0.9, step=0.1)
+# 💡【修改點】移除縮放拉桿，替換為「畫質」拉桿，用來解決圖片過度壓縮的問題
+image_quality = st.slider("📸 萃取圖片畫質 (預設 95 高畫質。若產出檔案太大可調低)", min_value=50, max_value=100, value=95, step=5)
 
 if uploaded_data is not None:
     st.success("✅ 資料檔已就緒！")
@@ -83,7 +83,18 @@ if uploaded_data is not None:
                                             img = image_loader.get(img_cell)
                                             safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
                                             img_path = os.path.join(temp_dir, f"{safe_name}.jpg")
-                                            img.convert('RGB').save(img_path)
+                                            
+                                            # 💡【修改點】白底圖層轉換邏輯：解決 PNG 去背圖變黑底的問題
+                                            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                                                img = img.convert('RGBA')
+                                                bg = Image.new('RGB', img.size, (255, 255, 255))
+                                                bg.paste(img, mask=img.split()[3])
+                                                img = bg
+                                            else:
+                                                img = img.convert('RGB')
+                                                
+                                            # 💡【修改點】套用使用者設定的高畫質存檔 (解決預設 75% 壓縮導致模糊的問題)
+                                            img.save(img_path, "JPEG", quality=image_quality)
                                         except Exception:
                                             pass
                         else:
@@ -132,6 +143,7 @@ if uploaded_data is not None:
                         val = str(row_series[col]).strip()
                         if val.lower() not in ['nan', '', 'nat', 'none']:
                             return val
+                        
                 return ""
             
             def to_float(val):
@@ -156,7 +168,7 @@ if uploaded_data is not None:
             # ========================================================
             # 📝 【核心畫布功能】
             # ========================================================
-            def draw_cards_on_sheet(ws, current_df, img_scale):
+            def draw_cards_on_sheet(ws, current_df):
                 ws.set_landscape()
                 ws.set_margins(left=0.3, right=0.3, top=0.4, bottom=0.4)
                 ws.fit_to_pages(1, 0)
@@ -271,7 +283,6 @@ if uploaded_data is not None:
                         ws.merge_range(start_row + 9, start_col + 1, start_row + 9, start_col + 4, "", fmt['dat_r'])
                         ws.merge_range(start_row + 10, start_col, start_row + 10, start_col + 4, f"Factory: {factory_combined}", fmt['fact_merge'])
 
-                        # 💡【全新防爆框置中引擎】
                         if temp_dir:
                             img_path = None
                             search_names = []
@@ -292,37 +303,29 @@ if uploaded_data is not None:
                                 
                             if img_path:
                                 try:
-                                    # 讀取圖片原始大小
                                     with Image.open(img_path) as img:
                                         img_w, img_h = img.size
                                     
-                                    # Excel 預留空白格的最大像素 (預留些微安全邊距)
                                     MAX_BOX_WIDTH = 510
                                     MAX_BOX_HEIGHT = 300
                                     
-                                    # 計算長寬所需的最極限縮放比例 (維持比例不變形)
                                     scale_w = MAX_BOX_WIDTH / img_w
                                     scale_h = MAX_BOX_HEIGHT / img_h
-                                    base_scale = min(scale_w, scale_h)
                                     
-                                    # 套用使用者網頁上的佔比拉桿
-                                    final_scale = base_scale * img_scale
+                                    # 💡【修改點】永遠使用完美比例置中 (1.0)，移除使用者的縮放干預
+                                    final_scale = min(scale_w, scale_h)
                                     
-                                    # 計算圖片最終的像素大小
                                     final_w = img_w * final_scale
                                     final_h = img_h * final_scale
                                     
-                                    # 動態計算 X, Y 偏移量，使其永遠保持在正中央
-                                    # 530 是 5欄位的總估算像素，312 是 234 高度的像素
                                     x_offset = int((530 - final_w) / 2)
                                     y_offset = int((312 - final_h) / 2)
                                     
-                                    # 寫入圖片
                                     ws.insert_image(start_row, start_col, img_path, 
                                                     {'x_scale': final_scale, 'y_scale': final_scale, 
                                                      'x_offset': max(x_offset, 5), 'y_offset': max(y_offset, 5)})
                                 except Exception as e:
-                                    pass # 若圖片損壞則忽略，不會導致整行資料跳過
+                                    pass
                         
                         item_index += 1
                     except Exception as e:
@@ -337,7 +340,8 @@ if uploaded_data is not None:
             factory_count = len(df['RawFactoryName'].unique())
             
             ws_master = workbook.add_worksheet('Master Sheet')
-            draw_cards_on_sheet(ws_master, df, image_scale)
+            # 💡【修改點】移除傳遞 img_scale
+            draw_cards_on_sheet(ws_master, df)
             
             ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
             ws_master.write(1, 16, factory_count, fmt['hdr_input'])
@@ -360,7 +364,7 @@ if uploaded_data is not None:
                 used_sheet_names.add(final_name)
                 
                 ws_fact = workbook.add_worksheet(final_name)
-                draw_cards_on_sheet(ws_fact, group_df, image_scale)
+                draw_cards_on_sheet(ws_fact, group_df)
 
             workbook.close()
             
