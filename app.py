@@ -15,6 +15,9 @@ st.markdown("只需上傳 Data 檔案 (.xlsm 或 .xlsx) 與圖片壓縮檔，系
 uploaded_file = st.file_uploader("1. 請上傳包含資料的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
 uploaded_zip = st.file_uploader("2. (選填) 請上傳包含產品圖片的 .zip 壓縮檔", type=["zip"])
 
+# 💡【新增功能】讓使用者在網頁上自由控制圖片大小
+image_scale = st.slider("🖼️ 調整圖片縮放比例 (若產出的圖片太小，請往右調大數值)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+
 if uploaded_file is not None:
     st.success("資料檔已就緒！")
     
@@ -102,7 +105,8 @@ if uploaded_file is not None:
             # ========================================================
             # 📝 【核心畫布功能】
             # ========================================================
-            def draw_cards_on_sheet(ws, current_df):
+            # 💡【修改點】傳入 img_scale 參數
+            def draw_cards_on_sheet(ws, current_df, img_scale):
                 ws.set_landscape()
                 ws.set_margins(left=0.3, right=0.3, top=0.4, bottom=0.4)
                 ws.fit_to_pages(1, 0)
@@ -118,9 +122,7 @@ if uploaded_file is not None:
 
                 # Row 0: 大標題緊密結合與去底色
                 ws.set_row(0, 30)
-                # 💡【修改點】前半段標題範圍改為 0~1 (A~B欄)
                 ws.merge_range(0, 0, 0, 1, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
-                # 💡【修改點】CATEGORY 緊接在後方 2~4 (C~E欄)
                 ws.merge_range(0, 2, 0, 4, "CATEGORY", fmt['hdr_title'])
                 ws.data_validation(0, 2, 0, 4, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
 
@@ -232,8 +234,9 @@ if uploaded_file is not None:
                                         break
                                 if img_path: break
                             if img_path:
+                                # 💡【修改點】使用網頁拉桿設定的 img_scale 變數
                                 ws.insert_image(start_row, start_col, img_path, 
-                                                {'x_scale': 0.28, 'y_scale': 0.28, 'x_offset': 15, 'y_offset': 15})
+                                                {'x_scale': img_scale, 'y_scale': img_scale, 'x_offset': 15, 'y_offset': 15})
                         
                         item_index += 1
                     except Exception as e:
@@ -249,7 +252,8 @@ if uploaded_file is not None:
             factory_count = len(df['RawFactoryName'].unique())
             
             ws_master = workbook.add_worksheet('Master Sheet')
-            draw_cards_on_sheet(ws_master, df)
+            # 💡【修改點】把網頁上的 image_scale 傳給函式
+            draw_cards_on_sheet(ws_master, df, image_scale)
             
             ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
             ws_master.write(1, 16, factory_count, fmt['hdr_input'])
@@ -272,7 +276,8 @@ if uploaded_file is not None:
                 used_sheet_names.add(final_name)
                 
                 ws_fact = workbook.add_worksheet(final_name)
-                draw_cards_on_sheet(ws_fact, group_df)
+                # 💡【修改點】把網頁上的 image_scale 傳給函式
+                draw_cards_on_sheet(ws_fact, group_df, image_scale)
 
             workbook.close()
             
