@@ -118,7 +118,7 @@ if uploaded_file is not None:
 
                 # Row 0: 大標題
                 ws.set_row(0, 30)
-                ws.merge_range(0, 0, 0, 16, "202X D240  PROGRAM NAME - CATEGORY NAME", fmt['hdr_title'])
+                ws.merge_range(0, 0, 0, 16, "202X D240  PROGRAM NAME - CATEGORY", fmt['hdr_title'])
 
                 # Row 1: Award Date & Vendor ID
                 ws.set_row(1, 20)
