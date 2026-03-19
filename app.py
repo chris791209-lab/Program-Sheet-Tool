@@ -21,16 +21,15 @@ if uploaded_file is not None:
         with st.spinner("正在為您進行排版與處理圖片，請稍候..."):
             
             try:
-                # 【修正 1】移除 skiprows=2。讓 Python 正確讀取第一列的標題與第二列的資料
                 df = pd.read_excel(uploaded_file, sheet_name="Data", engine="openpyxl")
+                # 確保所有的欄位名稱去除前後空白，避免名稱對應失敗
+                df.columns = [str(c).strip() for c in df.columns]
             except Exception as e:
                 st.error(f"讀取 Excel 失敗，請確認檔案內是否有名為 'Data' 的工作表頁籤。錯誤訊息: {e}")
                 st.stop()
                 
-            # 【修正 2】確保 DPCI (第7欄，Index=6) 有資料才保留
-            if len(df.columns) >= 7:
-                dpci_col_name = df.columns[6]
-                df = df.dropna(subset=[dpci_col_name])
+            if 'DPCI' in df.columns:
+                df = df.dropna(subset=['DPCI'])
             
             temp_dir = None
             if uploaded_zip is not None:
@@ -53,7 +52,6 @@ if uploaded_file is not None:
             # 🎨 【排版美化設定區】
             # ========================================================
             base_props = {
-                # 【修正 3】將 label 與 red_label 的 align 從 right 改為 left
                 'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
                 'red_label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'font_color': '#FF0000', 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
                 'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
@@ -76,6 +74,10 @@ if uploaded_file is not None:
             create_fmt('dat_r', 'data', right=2)
             create_fmt('dat_b', 'data', bottom=2)
             create_fmt('dat_rb', 'data', right=2, bottom=2)
+            
+            # 建立帶有 $ 貨幣格式的資料儲存格 (加入 num_format 屬性)
+            create_fmt('dat_in_curr', 'data', num_format='$#,##0.00')
+            create_fmt('dat_r_curr', 'data', right=2, num_format='$#,##0.00')
 
             title_format = workbook.add_format({'font_name': 'Arial', 'bold': True, 'font_size': 14})
             worksheet.write(0, 0, "2025 Program Sheet Auto-Generated", title_format)
@@ -97,17 +99,25 @@ if uploaded_file is not None:
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
             # ========================================================
-            # 🛠️ 【資料抓取神小幫手】: 就像 VBA 一樣，直接輸入「第幾欄」就能精準抓資料
+            # 🛠️ 【資料抓取神小幫手】
+            # 直接比對 Data 的標題名稱，再也不怕欄位順序大亂！
             # ========================================================
-            def get_val(row_series, col_num):
+            def get_val(row_series, possible_cols):
+                for col in possible_cols:
+                    if col in row_series.index:
+                        val = str(row_series[col]).strip()
+                        if val.lower() not in ['nan', '', 'nat', 'none']:
+                            return val
+                return ""
+            
+            # 強制將金額轉換為浮點數，以便套用 $ 貨幣格式
+            def to_float(val):
+                if not val:
+                    return ""
                 try:
-                    # 避免數字超出總欄位數量 (col_num - 1 是因為 Python index 從 0 開始)
-                    if (col_num - 1) < len(row_series):
-                        val = str(row_series.iloc[col_num - 1]).strip()
-                        return "" if val.lower() == 'nan' else val
-                    return ""
-                except:
-                    return ""
+                    return float(val.replace('$', '').replace(',', '').strip())
+                except ValueError:
+                    return val
 
             item_index = 0
             page_breaks = [] 
@@ -130,56 +140,73 @@ if uploaded_file is not None:
                         page_breaks.append(start_row - 1)
                     
                     # ----------------------------------------------------
-                    # 🎯 【資料對應區】：完美對齊您最初 VBA 成功的欄位設定
+                    # 🎯 【資料對應區】：完美匹配您的 Data 表頭名稱
                     # ----------------------------------------------------
-                    dpci_val = get_val(row, 7)     # DPCI: 第 7 欄
-                    style_val = get_val(row, 14)   # Style: 第 14 欄
-                    upc_val = get_val(row, 13)     # UPC: 假設在第 13 欄 (Barcode)
-                    desc_val = get_val(row, 4)     # Description: 第 4 欄
-                    fca_val = get_val(row, 26)     # FCA: 第 26 欄
-                    retail_val = get_val(row, 25)  # RETAIL: 第 25 欄
-                    pack_val = get_val(row, 70)    # Packaging: 第 70 欄
-                    hs_val = get_val(row, 56)      # HS NO: 第 56 欄
+                    dpci_val = get_val(row, ['DPCI'])
+                    style_val = get_val(row, ['Manufacturer Style # *', 'Manufacturer Style #', 'Style Number'])
+                    upc_val = get_val(row, ['Barcode', 'UPC#', 'UPC'])
+                    desc_val = get_val(row, ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'])
                     
-                    case_q = get_val(row, 27)      # 外箱: 第 27 欄
-                    inner_q = get_val(row, 32)     # 內箱: 第 32 欄
+                    # 將 FCA 與 RETAIL 轉換為浮點數以套用 $ 格式
+                    fca_val = to_float(get_val(row, ['FCA Factory City Unit Cost', 'FCA', 'FCA $']))
+                    retail_val = to_float(get_val(row, ['Suggested Unit Retail', 'RETAIL', 'Retail$']))
+                    
+                    pack_val = get_val(row, ['Retail Packaging Format (1) *', 'Retail Packaging Format (1)', 'Packaging'])
+                    hs_val = get_val(row, ['HTS Code', 'HS NO'])
+                    
+                    case_q = get_val(row, ['Case Unit Quantity', 'Casepack'])
+                    inner_q = get_val(row, ['Inner Pack Unit Quantity', 'Innerpack'])
                     pack_str = f"{case_q} / {inner_q}" if (case_q or inner_q) else ""
                     
-                    mat_val = get_val(row, 61)     # Material: 第 61 欄
+                    mat_val = get_val(row, ['Primary Raw Material Type', 'Material', 'Main Raw Material *'])
+                    qty_val = get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY'])
+                    factory_val = get_val(row, ['Factory Name', 'Factory info.', 'Factory'])
                     
-                    fact_1 = get_val(row, 100)     # Factory(外): 第 100 欄
-                    fact_2 = get_val(row, 90)      # Factory(內): 第 90 欄
-                    factory_val = f"{fact_1} - {fact_2}".strip(" - ")
-                    
+                    # Row 1
                     w_row(worksheet, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
+                    # Row 2
                     w_row(worksheet, start_row, start_col, 2, "UPC#:", upc_val, "", "", "",
                           'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
+                    # Row 3
                     w_row(worksheet, start_row, start_col, 3, "TCIN:", "", "", "", "",
                           'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
-                    w_row(worksheet, start_row, start_col, 4, "Description:", desc_val, "", "", "",
-                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
+                    # =========================================
+                    # Row 4 (Description: B7~E7 橫向合併)
+                    # =========================================
+                    worksheet.write(start_row + 4, start_col, "Description:", fmt['lbl_l'])
+                    worksheet.merge_range(start_row + 4, start_col + 1, start_row + 4, start_col + 4, desc_val, fmt['dat_r'])
                     
+                    # Row 5 (FCA & RETAIL 套用貨幣格式)
                     w_row(worksheet, start_row, start_col, 5, "FCA $:", fca_val, "", "RETAIL:", retail_val,
-                          'rlbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
+                          'rlbl_l', 'dat_in_curr', 'dat_in', 'rlbl_in', 'dat_r_curr')
                     
+                    # Row 6
                     w_row(worksheet, start_row, start_col, 6, "Packaging:", pack_val, "", "Red Seal:", "",
                           'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
                     
+                    # Row 7
                     w_row(worksheet, start_row, start_col, 7, "HS NO:", hs_val, "", "Casepack:", pack_str,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    w_row(worksheet, start_row, start_col, 8, "Material:", mat_val, "", "QTY:", "",
+                    # Row 8
+                    w_row(worksheet, start_row, start_col, 8, "Material:", mat_val, "", "QTY:", qty_val,
                           'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
                     
-                    w_row(worksheet, start_row, start_col, 9, "Remark:", "", "", "", "",
-                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
+                    # =========================================
+                    # Row 9 (Remark: B12~E12 橫向合併)
+                    # =========================================
+                    worksheet.write(start_row + 9, start_col, "Remark:", fmt['lbl_l'])
+                    worksheet.merge_range(start_row + 9, start_col + 1, start_row + 9, start_col + 4, "", fmt['dat_r'])
                     
-                    w_row(worksheet, start_row, start_col, 10, "Factory:", factory_val, "", "", "",
-                          'lbl_lb', 'dat_b', 'dat_b', 'dat_b', 'dat_rb')
+                    # =========================================
+                    # Row 10 (Factory: B13~E13 橫向合併，底部完美封邊)
+                    # =========================================
+                    worksheet.write(start_row + 10, start_col, "Factory:", fmt['lbl_lb'])
+                    worksheet.merge_range(start_row + 10, start_col + 1, start_row + 10, start_col + 4, factory_val, fmt['dat_rb'])
 
                     if temp_dir and dpci_val:
                         img_path = None
