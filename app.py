@@ -120,20 +120,19 @@ if uploaded_file is not None:
                 ws.set_row(0, 30)
                 ws.merge_range(0, 0, 0, 16, "202X D240  PROGRAM NAME - CATEGORY NAME", fmt['hdr_title'])
 
-                # 💡 【修改點】: 將右側標籤直接寫在 G 欄 (索引 6)，不再跨越間距 F 欄 (索引 5)
                 # Row 1: Award Date & Vendor ID
                 ws.set_row(1, 20)
                 ws.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
                 ws.merge_range(1, 2, 1, 4, "", fmt['hdr_input']) 
-                ws.write(1, 6, "Vendor ID#:", fmt['hdr_lbl'])                 # <-- 完美對齊 G 欄
-                ws.merge_range(1, 7, 1, 9, "1985373", fmt['hdr_input'])       # <-- 往右延伸一點讓輸入框對稱
+                ws.write(1, 6, "Vendor ID#:", fmt['hdr_lbl'])                 
+                ws.merge_range(1, 7, 1, 9, "1985373", fmt['hdr_input'])       
 
                 # Row 2: Sourcing & PD&D
                 ws.set_row(2, 20)
                 ws.merge_range(2, 0, 2, 1, "Sourcing:", fmt['hdr_lbl'])
                 ws.merge_range(2, 2, 2, 4, "", fmt['hdr_input'])
                 ws.data_validation(2, 2, 2, 4, {'validate': 'list', 'source': ['Christy Meyers - Van Der Bosch', 'Ashley Krucker', 'Angela Kennedy']})
-                ws.write(2, 6, "PD&D:", fmt['hdr_lbl'])                       # <-- 完美對齊 G 欄
+                ws.write(2, 6, "PD&D:", fmt['hdr_lbl'])                       
                 ws.merge_range(2, 7, 2, 9, "", fmt['hdr_input'])              
                 ws.data_validation(2, 7, 2, 9, {'validate': 'list', 'source': ['Adam Hoppus', 'La Dieh Rosenthal', 'Name D']})
 
@@ -142,7 +141,7 @@ if uploaded_file is not None:
                 ws.merge_range(3, 0, 3, 1, "TSS MR:", fmt['hdr_lbl'])
                 ws.merge_range(3, 2, 3, 4, "", fmt['hdr_input'])
                 ws.data_validation(3, 2, 3, 4, {'validate': 'list', 'source': ['Asya Yi', 'Jasmine Li', 'Feng Cao']})
-                ws.write(3, 6, "Set date:", fmt['hdr_lbl'])                   # <-- 完美對齊 G 欄
+                ws.write(3, 6, "Set date:", fmt['hdr_lbl'])                   
                 ws.merge_range(3, 7, 3, 9, "", fmt['hdr_input'])
 
                 item_index = 0
@@ -243,11 +242,22 @@ if uploaded_file is not None:
             # ========================================================
             # 🚀 【自動生成頁籤流程】
             # ========================================================
+            factory_count = len(df['RawFactoryName'].unique())
+            
+            # 第一步：建立 Master Sheet (總表，傳入完整 df)
             ws_master = workbook.add_worksheet('Master Sheet')
             draw_cards_on_sheet(ws_master, df)
             
+            # 💡【新增】: 在 Master Sheet 的右上方獨立加上統計資訊
+            # P 欄索引為 15, Q 欄索引為 16。列索引 1 代表第 2 列，2 代表第 3 列。
+            ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
+            ws_master.write(1, 16, factory_count, fmt['hdr_input'])
+            ws_master.write(2, 15, "Item#:", fmt['hdr_lbl'])
+            ws_master.write(2, 16, len(df), fmt['hdr_input'])
+            
             used_sheet_names = set(['Master Sheet'])
             
+            # 第二步：依據工廠名稱分組，獨立建立頁籤
             for factory, group_df in df.groupby('RawFactoryName'):
                 clean_name = str(factory).strip()
                 if not clean_name: clean_name = "Unknown Factory"
@@ -265,8 +275,6 @@ if uploaded_file is not None:
                 draw_cards_on_sheet(ws_fact, group_df)
 
             workbook.close()
-            
-            factory_count = len(df['RawFactoryName'].unique())
             
             st.success(f"排版完成！總表共包含 {len(df)} 筆商品，並已自動為您拆分成 {factory_count} 個工廠專屬頁籤。")
             st.download_button(
