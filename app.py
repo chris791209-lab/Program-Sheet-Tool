@@ -110,19 +110,19 @@ if uploaded_file is not None:
             worksheet.merge_range(2, 0, 2, 1, "Sourcing:", fmt['hdr_lbl'])
             worksheet.merge_range(2, 2, 2, 4, "", fmt['hdr_input'])
             # 建立 Sourcing 的下拉選單清單 (您可自由更改清單內容)
-            worksheet.data_validation(2, 2, 2, 4, {'validate': 'list', 'source': ['Christy Meyers - Van Der Bosch', 'Name A', 'Name B']})
+            worksheet.data_validation(2, 2, 2, 4, {'validate': 'list', 'source': ['Christy Meyers - Van Der Bosch', 'Ashley Krucker', 'Angela Kennedy']})
             
             worksheet.merge_range(2, 5, 2, 6, "PD&D:", fmt['hdr_lbl'])
             worksheet.merge_range(2, 7, 2, 8, "", fmt['hdr_input'])
             # 建立 PD&D 的下拉選單清單
-            worksheet.data_validation(2, 7, 2, 8, {'validate': 'list', 'source': ['Adam Hoppus', 'Name C', 'Name D']})
+            worksheet.data_validation(2, 7, 2, 8, {'validate': 'list', 'source': ['Adam Hoppus', 'La Dieh Rosenthal', 'Name D']})
 
             # Row 3: TSS MR & Set Date
             worksheet.set_row(3, 20)
             worksheet.merge_range(3, 0, 3, 1, "TSS MR:", fmt['hdr_lbl'])
             worksheet.merge_range(3, 2, 3, 4, "", fmt['hdr_input'])
             # 建立 TSS MR 的下拉選單清單
-            worksheet.data_validation(3, 2, 3, 4, {'validate': 'list', 'source': ['Asya Yi', 'Name E', 'Name F']})
+            worksheet.data_validation(3, 2, 3, 4, {'validate': 'list', 'source': ['Asya Yi', 'Jasmine Li', 'Feng Cao']})
             
             worksheet.merge_range(3, 5, 3, 6, "Set date:", fmt['hdr_lbl'])
             worksheet.merge_range(3, 7, 3, 8, "", fmt['hdr_input']) # Date 預留格
