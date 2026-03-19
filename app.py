@@ -77,7 +77,8 @@ if uploaded_file is not None:
 
             # --- 新增：表頭專用格式 ---
             create_fmt('hdr_title', 'label', font_size=13, align='left')
-            create_fmt('hdr_lbl', 'label', align='right')
+            # 💡【修改點】：將這裡的 align='right' 改成了 align='left'
+            create_fmt('hdr_lbl', 'label', align='left')
             # 模擬輸入框的樣式 (帶有一圈細框線與淺灰底色，提示使用者這裡可以填寫)
             create_fmt('hdr_input', 'data', align='left', bg_color='#F4F4F4', border=1)
 
