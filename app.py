@@ -48,10 +48,9 @@ if uploaded_file is not None:
             worksheet.fit_to_pages(1, 0)
             
             # ========================================================
-            # 🎨 【排版美化設定區】: 已取消所有紅字與灰底
+            # 🎨 【排版美化設定區】
             # ========================================================
             base_props = {
-                # 取消了 bg_color 與 font_color，恢復純淨白底黑字
                 'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter'},
                 'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
                 'img': {'bg_color': '#FFFFFF'}
@@ -72,28 +71,15 @@ if uploaded_file is not None:
             create_fmt('dat_b', 'data', bottom=2)
             create_fmt('dat_rb', 'data', right=2, bottom=2)
             
-            # 貨幣格式
             create_fmt('dat_in_curr', 'data', num_format='$#,##0.00')
             create_fmt('dat_r_curr', 'data', right=2, num_format='$#,##0.00')
-            
-            # 專屬 Factory 合併格式 (底色 #FFC000, 粗體, 上下左右包圍粗線)
             create_fmt('fact_merge', 'label', left=2, right=2, bottom=2, bg_color='#FFC000')
 
-            # ========================================================
-            # 📝 【第一列大標題設定】: 合併 A1~Q1 (0~16)，高度 76.5
-            # ========================================================
-            header_text = (
-                "202X D240  PROGRAM NAME - CATEGORY NAME\n"
-                "Business award date: 202X/MM/DD ;  Venodr ID#\n"
-                "Sourcing:      ;   PD&D:   \n"
-                "TSS MR:      ;   Set date: 202X/MM/DD"
-            )
-            title_format = workbook.add_format({
-                'font_name': 'Arial', 'bold': True, 'font_size': 11,
-                'align': 'left', 'valign': 'top', 'text_wrap': True
-            })
-            worksheet.set_row(0, 76.50)
-            worksheet.merge_range(0, 0, 0, 16, header_text, title_format)
+            # --- 新增：表頭專用格式 ---
+            create_fmt('hdr_title', 'label', font_size=13, align='left')
+            create_fmt('hdr_lbl', 'label', align='right')
+            # 模擬輸入框的樣式 (帶有一圈細框線與淺灰底色，提示使用者這裡可以填寫)
+            create_fmt('hdr_input', 'data', align='left', bg_color='#F4F4F4', border=1)
 
             # 動態設定欄寬
             for i in range(3):
@@ -104,7 +90,46 @@ if uploaded_file is not None:
                 worksheet.set_column(base + 3, base + 3, 13) 
                 worksheet.set_column(base + 4, base + 4, 22) 
                 worksheet.set_column(base + 5, base + 5, 4)  
+
+            # ========================================================
+            # 📝 【第一區大表頭：結構化與互動式下拉選單設計】
+            # ========================================================
+            # Row 0: 大標題
+            worksheet.set_row(0, 30)
+            worksheet.merge_range(0, 0, 0, 16, "202X D240  PROGRAM NAME - CATEGORY NAME", fmt['hdr_title'])
+
+            # Row 1: Award Date & Vendor ID
+            worksheet.set_row(1, 20)
+            worksheet.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
+            worksheet.merge_range(1, 2, 1, 4, "", fmt['hdr_input']) # Date 預留格
+            worksheet.merge_range(1, 5, 1, 6, "Vendor ID#:", fmt['hdr_lbl'])
+            worksheet.merge_range(1, 7, 1, 8, "1985373", fmt['hdr_input']) 
+
+            # Row 2: Sourcing & PD&D (搭配下拉選單)
+            worksheet.set_row(2, 20)
+            worksheet.merge_range(2, 0, 2, 1, "Sourcing:", fmt['hdr_lbl'])
+            worksheet.merge_range(2, 2, 2, 4, "", fmt['hdr_input'])
+            # 建立 Sourcing 的下拉選單清單 (您可自由更改清單內容)
+            worksheet.data_validation(2, 2, 2, 4, {'validate': 'list', 'source': ['Christy Meyers - Van Der Bosch', 'Name A', 'Name B']})
             
+            worksheet.merge_range(2, 5, 2, 6, "PD&D:", fmt['hdr_lbl'])
+            worksheet.merge_range(2, 7, 2, 8, "", fmt['hdr_input'])
+            # 建立 PD&D 的下拉選單清單
+            worksheet.data_validation(2, 7, 2, 8, {'validate': 'list', 'source': ['Adam Hoppus', 'Name C', 'Name D']})
+
+            # Row 3: TSS MR & Set Date
+            worksheet.set_row(3, 20)
+            worksheet.merge_range(3, 0, 3, 1, "TSS MR:", fmt['hdr_lbl'])
+            worksheet.merge_range(3, 2, 3, 4, "", fmt['hdr_input'])
+            # 建立 TSS MR 的下拉選單清單
+            worksheet.data_validation(3, 2, 3, 4, {'validate': 'list', 'source': ['Asya Yi', 'Name E', 'Name F']})
+            
+            worksheet.merge_range(3, 5, 3, 6, "Set date:", fmt['hdr_lbl'])
+            worksheet.merge_range(3, 7, 3, 8, "", fmt['hdr_input']) # Date 預留格
+
+            # ========================================================
+            # 🛠️ 【資料處理小幫手】
+            # ========================================================
             def w_row(ws, s_row, s_col, r_off, c0, c1, c2, c3, c4, f0, f1, f2, f3, f4):
                 ws.write(s_row + r_off, s_col + 0, c0, fmt[f0])
                 ws.write(s_row + r_off, s_col + 1, c1, fmt[f1])
@@ -112,7 +137,6 @@ if uploaded_file is not None:
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
-            # 資料抓取小幫手
             def get_val(row_series, possible_cols):
                 for col in possible_cols:
                     if col in row_series.index:
@@ -126,11 +150,11 @@ if uploaded_file is not None:
                 try: return float(val.replace('$', '').replace(',', '').strip())
                 except ValueError: return val
                 
-            # 將數量強制轉換為整數的工具 (去掉小數點)
-            def to_int_str(val):
+            # 【千位數小幫手】去掉小數點，並加上千位逗號格式 (如 1,200)
+            def to_int_str_comma(val):
                 if not val: return ""
-                try: return str(int(float(val.replace(',', '').strip())))
-                except ValueError: return val
+                try: return f"{int(float(str(val).replace(',', '').strip())):,}"
+                except ValueError: return str(val)
 
             item_index = 0
             page_breaks = [] 
@@ -140,8 +164,8 @@ if uploaded_file is not None:
                     block_row = item_index // 3
                     block_col = item_index % 3
                     
-                    # 配合頂部的 header，全部往下推 1 列，並預留間距
-                    start_row = 3 + (block_row * 13)
+                    # 卡片起始位置往下推至第 5 列 (前面 4 列讓給了精美的結構化表頭)
+                    start_row = 5 + (block_row * 13)
                     start_col = block_col * 6
                     
                     worksheet.set_row(start_row, 234) 
@@ -157,7 +181,7 @@ if uploaded_file is not None:
                     dpci_val = get_val(row, ['DPCI'])
                     style_val = get_val(row, ['Manufacturer Style # *', 'Manufacturer Style #', 'Style Number'])
                     upc_val = get_val(row, ['Barcode', 'UPC#', 'UPC'])
-                    pid_val = get_val(row, ['Spark PID', 'PID']) # 新增抓取 PID
+                    pid_val = get_val(row, ['Spark PID', 'PID']) 
                     desc_val = get_val(row, ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'])
                     
                     fca_val = to_float(get_val(row, ['FCA Factory City Unit Cost', 'FCA', 'FCA $']))
@@ -165,29 +189,42 @@ if uploaded_file is not None:
                     pack_val = get_val(row, ['Retail Packaging Format (1) *', 'Retail Packaging Format (1)', 'Packaging'])
                     hs_val = get_val(row, ['HTS Code', 'HS NO'])
                     
-                    case_q = to_int_str(get_val(row, ['Case Unit Quantity', 'Casepack']))
-                    inner_q = to_int_str(get_val(row, ['Inner Pack Unit Quantity', 'Innerpack']))
+                    # Casepack/Innerpack 保留純數字
+                    case_q = get_val(row, ['Case Unit Quantity', 'Casepack'])
+                    inner_q = get_val(row, ['Inner Pack Unit Quantity', 'Innerpack'])
+                    try: case_q = str(int(float(case_q))) if case_q else ""
+                    except: pass
+                    try: inner_q = str(int(float(inner_q))) if inner_q else ""
+                    except: pass
                     pack_str = f"{case_q} / {inner_q}" if (case_q or inner_q) else ""
                     
                     mat_val = get_val(row, ['Primary Raw Material Type', 'Material', 'Main Raw Material *'])
                     
-                    # QTY 套用去小數點函數
-                    qty_val = to_int_str(get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY']))
+                    # QTY 套用千位數格式小幫手
+                    qty_val = to_int_str_comma(get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY']))
                     
-                    factory_val = get_val(row, ['Factory Name', 'Factory info.', 'Factory'])
+                    # 【全新串接邏輯】Factory Name / Factory ID / Order Point 後兩碼
+                    raw_factory_name = get_val(row, ['Factory Name', 'Factory info.', 'Factory'])
+                    raw_factory_id = get_val(row, ['Factory ID', 'Import Vendor ID'])
+                    raw_vendor_op = get_val(row, ['Import Vendor Order Point'])
+                    # 擷取 Vendor Order Point 的最後兩碼
+                    op_last_two = raw_vendor_op[-2:] if len(raw_vendor_op) >= 2 else raw_vendor_op
+                    
+                    # 過濾掉空值，並用 " / " 串接
+                    fact_parts = [p for p in [raw_factory_name, raw_factory_id, op_last_two] if p]
+                    factory_combined = " / ".join(fact_parts)
                     
                     # Row 1
                     w_row(worksheet, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # Row 2 (新增 PID 於 E 欄)
+                    # Row 2 
                     w_row(worksheet, start_row, start_col, 2, "UPC#:", upc_val, "", "PID:", pid_val,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # Row 3 (新增 SP 與 ☐ 勾選框)
+                    # Row 3 (SP 與 ☐ 勾選框)
                     w_row(worksheet, start_row, start_col, 3, "TCIN:", "", "", "SP:", "☐",
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
-                    # 為 SP 的格子建立下拉選單 (支援打勾與空框)
                     worksheet.data_validation(start_row + 3, start_col + 4, start_row + 3, start_col + 4,
                                               {'validate': 'list', 'source': ['☑', '☐']})
                     
@@ -215,8 +252,8 @@ if uploaded_file is not None:
                     worksheet.write(start_row + 9, start_col, "Remark:", fmt['lbl_l'])
                     worksheet.merge_range(start_row + 9, start_col + 1, start_row + 9, start_col + 4, "", fmt['dat_r'])
                     
-                    # Row 10 (Factory: A~E 全部合併，套用橘黃底色)
-                    worksheet.merge_range(start_row + 10, start_col, start_row + 10, start_col + 4, f"Factory: {factory_val}", fmt['fact_merge'])
+                    # Row 10 (Factory: A~E 橫向合併，寫入串接好的組合資料)
+                    worksheet.merge_range(start_row + 10, start_col, start_row + 10, start_col + 4, f"Factory: {factory_combined}", fmt['fact_merge'])
 
                     if temp_dir and dpci_val:
                         img_path = None
