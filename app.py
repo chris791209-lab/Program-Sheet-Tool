@@ -13,85 +13,87 @@ from openpyxl.utils import get_column_letter
 # --- 網頁介面設定 ---
 st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
 st.title("🚀 Program Sheet 自動生成器")
-st.markdown("上傳 Data 檔案，系統將瞬間為您排版並匯入圖片！")
+st.markdown("請分別上傳「商品資料」與「圖片來源」，系統將瞬間為您排版整合！")
 
-uploaded_file = st.file_uploader("1. 請上傳包含資料的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
-uploaded_zip = st.file_uploader("2. (選填) 請上傳包含產品圖片的 .zip 壓縮檔", type=["zip"])
+# 💡【修改點 1】獨立的 Data 上傳區塊
+st.markdown("### 📄 步驟 1：上傳商品資料")
+uploaded_data = st.file_uploader("請上傳包含完整報價、工廠等資訊的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
 
-# 💡【新增】免裝 Python 的雲端萃取開關
-use_excel_images = st.checkbox("🔮 自動從上傳的 Excel 檔中萃取圖片 (若打勾則無需上傳 ZIP)", value=False)
-image_scale = st.slider("🖼️ 調整圖片縮放比例", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+# 💡【修改點 2】獨立的 圖片 上傳區塊，並使用點選切換
+st.markdown("### 🖼️ 步驟 2：上傳圖片來源 (二擇一)")
+img_option = st.radio("請選擇您的圖片提供方式：", ["📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)", "📊 上傳有縮圖的 Excel 檔 (自動萃取)"])
 
-if uploaded_file is not None:
-    st.success("資料檔已就緒！")
+uploaded_img = None
+if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
+    uploaded_img = st.file_uploader("請上傳 .zip 圖片壓縮檔", type=["zip"])
+else:
+    uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
+
+st.markdown("### ⚙️ 步驟 3：微調與生成")
+image_scale = st.slider("🖼️ 調整圖片縮放比例 (若圖片太小請往右拉)", min_value=0.1, max_value=3.0, value=0.5, step=0.1)
+
+if uploaded_data is not None:
+    st.success("✅ 資料檔已就緒！")
     
     if st.button("✨ 生成 Program Sheet"):
         with st.spinner("正在為您進行排版與處理圖片，請稍候 (若包含萃取圖片可能需要數十秒)..."):
             
             try:
-                # 讀取資料
-                df = pd.read_excel(uploaded_file, sheet_name="Data", engine="openpyxl")
+                # 讀取 Data (主要報價資料)
+                df = pd.read_excel(uploaded_data, sheet_name="Data", engine="openpyxl")
                 df.columns = [str(c).strip() for c in df.columns]
             except Exception as e:
-                # 若找不到 Data 頁籤，嘗試讀取第一個頁籤 (相容於從系統直接匯出的檔案)
-                uploaded_file.seek(0)
-                df = pd.read_excel(uploaded_file, engine="openpyxl")
+                uploaded_data.seek(0)
+                df = pd.read_excel(uploaded_data, engine="openpyxl")
                 df.columns = [str(c).strip() for c in df.columns]
                 
-            if 'DPCI' in df.columns:
-                df = df.dropna(subset=['DPCI'])
+            temp_dir = tempfile.mkdtemp()
             
-            temp_dir = None
-            
-            # 處理 ZIP 上傳
-            if uploaded_zip is not None and not use_excel_images:
-                temp_dir = tempfile.mkdtemp()
-                with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                    
-            # 💡【核心升級】：雲端自動萃取 Excel 內嵌圖片
-            if use_excel_images:
-                if temp_dir is None:
-                    temp_dir = tempfile.mkdtemp()
-                try:
-                    uploaded_file.seek(0) # 重置檔案讀取指針
-                    wb = openpyxl.load_workbook(uploaded_file, data_only=True)
-                    sheet_name_to_use = "Data" if "Data" in wb.sheetnames else wb.sheetnames[0]
-                    sheet = wb[sheet_name_to_use]
-                    image_loader = SheetImageLoader(sheet)
+            # 💡【修改點 3】處理圖片來源邏輯
+            if uploaded_img is not None:
+                if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
+                    with zipfile.ZipFile(uploaded_img, 'r') as zip_ref:
+                        zip_ref.extractall(temp_dir)
+                else: # Excel 圖片自動萃取
+                    try:
+                        wb = openpyxl.load_workbook(uploaded_img, data_only=True)
+                        # 優先尋找 Products 頁籤
+                        sheet_name_to_use = "Products" if "Products" in wb.sheetnames else ("Data" if "Data" in wb.sheetnames else wb.sheetnames[0])
+                        sheet = wb[sheet_name_to_use]
+                        image_loader = SheetImageLoader(sheet)
 
-                    # 自動尋找 Thumbnail 與 DPCI/PID 所在的欄位與列數
-                    header_row, thumb_col, dpci_col = None, None, None
-                    for r in range(1, 15): 
-                        for c in range(1, sheet.max_column + 1):
-                            val = str(sheet.cell(row=r, column=c).value).strip().lower()
-                            if val == 'thumbnail':
-                                thumb_col = c
-                                header_row = r
-                            elif val in ['dpci', 'pid', 'spark pid']:
-                                dpci_col = c
+                        header_row, thumb_col, dpci_col = None, None, None
+                        # 自動尋找縮圖與 PID 所在位置
+                        for r in range(1, 15): 
+                            for c in range(1, sheet.max_column + 1):
+                                val = str(sheet.cell(row=r, column=c).value).strip().lower()
+                                if val == 'thumbnail':
+                                    thumb_col = c
+                                    header_row = r
+                                elif val in ['dpci', 'pid', 'spark pid']:
+                                    dpci_col = c
+                            if thumb_col and dpci_col:
+                                break
+
                         if thumb_col and dpci_col:
-                            break
+                            thumb_letter = get_column_letter(thumb_col)
+                            for r in range(header_row + 1, sheet.max_row + 1):
+                                dpci_val = str(sheet.cell(row=r, column=dpci_col).value).strip()
+                                img_cell = f"{thumb_letter}{r}"
 
-                    if thumb_col and dpci_col:
-                        thumb_letter = get_column_letter(thumb_col)
-                        for r in range(header_row + 1, sheet.max_row + 1):
-                            dpci_val = str(sheet.cell(row=r, column=dpci_col).value).strip()
-                            img_cell = f"{thumb_letter}{r}"
-
-                            if dpci_val and dpci_val.lower() not in ['none', 'nan', '']:
-                                if image_loader.image_in(img_cell):
-                                    try:
-                                        img = image_loader.get(img_cell)
-                                        safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
-                                        img_path = os.path.join(temp_dir, f"{safe_name}.jpg")
-                                        img.convert('RGB').save(img_path)
-                                    except Exception:
-                                        pass # 忽略單張圖片萃取失敗，繼續下一張
-                    else:
-                        st.warning("⚠️ 在 Excel 中找不到 'Thumbnail' 標題，無法萃取圖片。")
-                except Exception as e:
-                    st.warning(f"⚠️ 雲端解析 Excel 圖片失敗: {e}")
+                                if dpci_val and dpci_val.lower() not in ['none', 'nan', '']:
+                                    if image_loader.image_in(img_cell):
+                                        try:
+                                            img = image_loader.get(img_cell)
+                                            safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
+                                            img_path = os.path.join(temp_dir, f"{safe_name}.jpg")
+                                            img.convert('RGB').save(img_path)
+                                        except Exception:
+                                            pass
+                        else:
+                            st.warning("⚠️ 在圖片 Excel 中找不到 'Thumbnail' 標題。")
+                    except Exception as e:
+                        st.warning(f"⚠️ 解析 Excel 圖片失敗: {e}")
             
             output = io.BytesIO()
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -273,15 +275,25 @@ if uploaded_file is not None:
                         ws.merge_range(start_row + 9, start_col + 1, start_row + 9, start_col + 4, "", fmt['dat_r'])
                         ws.merge_range(start_row + 10, start_col, start_row + 10, start_col + 4, f"Factory: {factory_combined}", fmt['fact_merge'])
 
-                        # 將解壓縮或雲端萃取的圖片貼入
-                        if temp_dir and dpci_val:
+                        # 💡【修改點 4】更聰明的圖片配對邏輯：同時檢查 DPCI 與 PID 命名
+                        if temp_dir:
                             img_path = None
+                            search_names = []
+                            for val in [dpci_val, pid_val]:
+                                if val:
+                                    v_lower = val.lower()
+                                    safe_v = "".join(x for x in val if x.isalnum() or x in "-_").lower()
+                                    search_names.extend([f"{v_lower}.jpg", f"{v_lower}.png", f"{safe_v}.jpg", f"{safe_v}.png"])
+                            
+                            search_names = set(search_names) # 去除重複名稱
+                            
                             for root, dirs, files in os.walk(temp_dir):
                                 for file in files:
-                                    if file.lower() == f"{dpci_val.lower()}.jpg" or file.lower() == f"{dpci_val.lower()}.png":
+                                    if file.lower() in search_names:
                                         img_path = os.path.join(root, file)
                                         break
                                 if img_path: break
+                                
                             if img_path:
                                 ws.insert_image(start_row, start_col, img_path, 
                                                 {'x_scale': img_scale, 'y_scale': img_scale, 'x_offset': 15, 'y_offset': 15})
