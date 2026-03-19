@@ -116,13 +116,13 @@ if uploaded_file is not None:
                     ws.set_column(base + 4, base + 4, 22) 
                     ws.set_column(base + 5, base + 5, 4)  
 
-                # 💡【修改點】Row 0: 大標題緊密結合與去底色
+                # Row 0: 大標題緊密結合與去底色
                 ws.set_row(0, 30)
-                # 前半段標題縮小合併範圍至 0~2 (即 A, B, C 欄)
-                ws.merge_range(0, 0, 0, 2, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
-                # CATEGORY 緊接在後方 3~5 (即 D, E, F 欄)，並共用 hdr_title 格式 (無底色無外框)
-                ws.merge_range(0, 3, 0, 5, "CATEGORY", fmt['hdr_title'])
-                ws.data_validation(0, 3, 0, 5, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
+                # 💡【修改點】前半段標題範圍改為 0~1 (A~B欄)
+                ws.merge_range(0, 0, 0, 1, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
+                # 💡【修改點】CATEGORY 緊接在後方 2~4 (C~E欄)
+                ws.merge_range(0, 2, 0, 4, "CATEGORY", fmt['hdr_title'])
+                ws.data_validation(0, 2, 0, 4, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
 
                 # Row 1: Award Date & Vendor ID
                 ws.set_row(1, 20)
