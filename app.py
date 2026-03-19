@@ -21,13 +21,16 @@ if uploaded_file is not None:
         with st.spinner("正在為您進行排版與處理圖片，請稍候..."):
             
             try:
-                df = pd.read_excel(uploaded_file, sheet_name="Data", skiprows=2, engine="openpyxl")
+                # 【修正 1】移除 skiprows=2。讓 Python 正確讀取第一列的標題與第二列的資料
+                df = pd.read_excel(uploaded_file, sheet_name="Data", engine="openpyxl")
             except Exception as e:
                 st.error(f"讀取 Excel 失敗，請確認檔案內是否有名為 'Data' 的工作表頁籤。錯誤訊息: {e}")
                 st.stop()
                 
-            if 'DPCI' in df.columns:
-                df = df.dropna(subset=['DPCI'])
+            # 【修正 2】確保 DPCI (第7欄，Index=6) 有資料才保留
+            if len(df.columns) >= 7:
+                dpci_col_name = df.columns[6]
+                df = df.dropna(subset=[dpci_col_name])
             
             temp_dir = None
             if uploaded_zip is not None:
@@ -47,13 +50,12 @@ if uploaded_file is not None:
             worksheet.fit_to_pages(1, 0)
             
             # ========================================================
-            # 🎨 【排版美化設定區：智慧邊框生成系統】
-            # 消除內部細框，僅在卡片邊緣套用 2 號粗外框
+            # 🎨 【排版美化設定區】
             # ========================================================
-            # 基礎屬性 (沒有任何 border)
             base_props = {
-                'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'right', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
-                'red_label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'font_color': '#FF0000', 'align': 'right', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
+                # 【修正 3】將 label 與 red_label 的 align 從 right 改為 left
+                'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
+                'red_label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'font_color': '#FF0000', 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
                 'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
                 'img': {'bg_color': '#FFFFFF'}
             }
@@ -64,27 +66,20 @@ if uploaded_file is not None:
                 p.update(kwargs)
                 fmt[name] = workbook.add_format(p)
                 
-            # 建立圖片區塊格式 (頂、左、右粗框，底部加一條細線與資料區隔)
             create_fmt('img_top', 'img', top=2, left=2, right=2, bottom=1)
-            
-            # 建立各邊緣專用的格式 (組合出完美外圍粗框)
             create_fmt('lbl_l', 'label', left=2)
             create_fmt('lbl_in', 'label')
             create_fmt('lbl_lb', 'label', left=2, bottom=2)
-            
             create_fmt('rlbl_l', 'red_label', left=2)
             create_fmt('rlbl_in', 'red_label')
-            
             create_fmt('dat_in', 'data')
             create_fmt('dat_r', 'data', right=2)
             create_fmt('dat_b', 'data', bottom=2)
             create_fmt('dat_rb', 'data', right=2, bottom=2)
 
-            # 大標題
             title_format = workbook.add_format({'font_name': 'Arial', 'bold': True, 'font_size': 14})
             worksheet.write(0, 0, "2025 Program Sheet Auto-Generated", title_format)
 
-            # 動態設定欄寬
             for i in range(3):
                 base = i * 6
                 worksheet.set_column(base, base, 13)       
@@ -94,13 +89,25 @@ if uploaded_file is not None:
                 worksheet.set_column(base + 4, base + 4, 22) 
                 worksheet.set_column(base + 5, base + 5, 4)  
             
-            # 專屬寫入小幫手 (確保每格都有正確的邊框)
             def w_row(ws, s_row, s_col, r_off, c0, c1, c2, c3, c4, f0, f1, f2, f3, f4):
                 ws.write(s_row + r_off, s_col + 0, c0, fmt[f0])
                 ws.write(s_row + r_off, s_col + 1, c1, fmt[f1])
-                ws.write(s_row + r_off, s_col + 2, c2, fmt[f2]) # 隱藏的間距欄也套用格式以防斷線
+                ws.write(s_row + r_off, s_col + 2, c2, fmt[f2]) 
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
+
+            # ========================================================
+            # 🛠️ 【資料抓取神小幫手】: 就像 VBA 一樣，直接輸入「第幾欄」就能精準抓資料
+            # ========================================================
+            def get_val(row_series, col_num):
+                try:
+                    # 避免數字超出總欄位數量 (col_num - 1 是因為 Python index 從 0 開始)
+                    if (col_num - 1) < len(row_series):
+                        val = str(row_series.iloc[col_num - 1]).strip()
+                        return "" if val.lower() == 'nan' else val
+                    return ""
+                except:
+                    return ""
 
             item_index = 0
             page_breaks = [] 
@@ -110,41 +117,40 @@ if uploaded_file is not None:
                     block_row = item_index // 3
                     block_col = item_index % 3
                     
-                    # 卡片佔 13 列 (1列圖片 + 10列資料 + 2列空白)
                     start_row = 2 + (block_row * 13)
                     start_col = block_col * 6
                     
-                    # ----------------------------------------------------
-                    # 🖼️ 建立頂部圖片區 (第 0 列)
-                    # ----------------------------------------------------
-                    worksheet.set_row(start_row, 234) # 完美 312 像素高度
+                    worksheet.set_row(start_row, 234) 
                     worksheet.merge_range(start_row, start_col, start_row, start_col + 4, "", fmt['img_top'])
                     
-                    # ----------------------------------------------------
-                    # 📝 建立下方資料區 (從第 1 列開始寫入)
-                    # ----------------------------------------------------
                     for r in range(start_row + 1, start_row + 11):
                         worksheet.set_row(r, 22)
                     
                     if block_row > 0 and block_row % 2 == 0 and block_col == 0:
                         page_breaks.append(start_row - 1)
                     
-                    dpci_val = str(row.get('DPCI', '')).strip()
-                    if dpci_val == 'nan': dpci_val = ''
-                    style_val = str(row.get('Manufacturer Style # *', '')).replace('nan','')
-                    upc_val = str(row.get('Barcode', '')).replace('nan','')
-                    desc_val = str(row.get('Vendor Product Description *', '')).replace('nan','')
-                    fca_val = str(row.get('FCA Factory City Unit Cost', '')).replace('nan','')
-                    retail_val = str(row.get('Suggested Unit Retail', '')).replace('nan','')
-                    pack_val = str(row.get('Retail Packaging Format (1) *', '')).replace('nan','')
-                    hs_val = str(row.get('HTS Code', '')).replace('nan','')
-                    case_q = str(row.get('Case Unit Quantity', '')).replace('nan','')
-                    inner_q = str(row.get('Inner Pack Unit Quantity', '')).replace('nan','')
-                    pack_str = f"{case_q} / {inner_q}" if case_q else ""
-                    mat_val = str(row.get('Primary Raw Material Type', '')).replace('nan','')
-                    factory_val = str(row.get('Factory Name', '')).replace('nan','')
+                    # ----------------------------------------------------
+                    # 🎯 【資料對應區】：完美對齊您最初 VBA 成功的欄位設定
+                    # ----------------------------------------------------
+                    dpci_val = get_val(row, 7)     # DPCI: 第 7 欄
+                    style_val = get_val(row, 14)   # Style: 第 14 欄
+                    upc_val = get_val(row, 13)     # UPC: 假設在第 13 欄 (Barcode)
+                    desc_val = get_val(row, 4)     # Description: 第 4 欄
+                    fca_val = get_val(row, 26)     # FCA: 第 26 欄
+                    retail_val = get_val(row, 25)  # RETAIL: 第 25 欄
+                    pack_val = get_val(row, 70)    # Packaging: 第 70 欄
+                    hs_val = get_val(row, 56)      # HS NO: 第 56 欄
                     
-                    # 利用小幫手寫入每一列資料，並指定對應的「邊緣格式」
+                    case_q = get_val(row, 27)      # 外箱: 第 27 欄
+                    inner_q = get_val(row, 32)     # 內箱: 第 32 欄
+                    pack_str = f"{case_q} / {inner_q}" if (case_q or inner_q) else ""
+                    
+                    mat_val = get_val(row, 61)     # Material: 第 61 欄
+                    
+                    fact_1 = get_val(row, 100)     # Factory(外): 第 100 欄
+                    fact_2 = get_val(row, 90)      # Factory(內): 第 90 欄
+                    factory_val = f"{fact_1} - {fact_2}".strip(" - ")
+                    
                     w_row(worksheet, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
@@ -172,11 +178,9 @@ if uploaded_file is not None:
                     w_row(worksheet, start_row, start_col, 9, "Remark:", "", "", "", "",
                           'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
                     
-                    # 第 10 列為最底層，必須加上 bottom 邊框封底
                     w_row(worksheet, start_row, start_col, 10, "Factory:", factory_val, "", "", "",
                           'lbl_lb', 'dat_b', 'dat_b', 'dat_b', 'dat_rb')
 
-                    # --- 匯入圖片 ---
                     if temp_dir and dpci_val:
                         img_path = None
                         for root, dirs, files in os.walk(temp_dir):
