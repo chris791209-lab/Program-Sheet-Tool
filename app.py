@@ -22,7 +22,6 @@ if uploaded_file is not None:
             
             try:
                 df = pd.read_excel(uploaded_file, sheet_name="Data", engine="openpyxl")
-                # 確保所有的欄位名稱去除前後空白，避免名稱對應失敗
                 df.columns = [str(c).strip() for c in df.columns]
             except Exception as e:
                 st.error(f"讀取 Excel 失敗，請確認檔案內是否有名為 'Data' 的工作表頁籤。錯誤訊息: {e}")
@@ -49,11 +48,11 @@ if uploaded_file is not None:
             worksheet.fit_to_pages(1, 0)
             
             # ========================================================
-            # 🎨 【排版美化設定區】
+            # 🎨 【排版美化設定區】: 已取消所有紅字與灰底
             # ========================================================
             base_props = {
-                'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
-                'red_label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'font_color': '#FF0000', 'align': 'left', 'valign': 'vcenter', 'bg_color': '#E7E6E6'},
+                # 取消了 bg_color 與 font_color，恢復純淨白底黑字
+                'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter'},
                 'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
                 'img': {'bg_color': '#FFFFFF'}
             }
@@ -68,20 +67,35 @@ if uploaded_file is not None:
             create_fmt('lbl_l', 'label', left=2)
             create_fmt('lbl_in', 'label')
             create_fmt('lbl_lb', 'label', left=2, bottom=2)
-            create_fmt('rlbl_l', 'red_label', left=2)
-            create_fmt('rlbl_in', 'red_label')
             create_fmt('dat_in', 'data')
             create_fmt('dat_r', 'data', right=2)
             create_fmt('dat_b', 'data', bottom=2)
             create_fmt('dat_rb', 'data', right=2, bottom=2)
             
-            # 建立帶有 $ 貨幣格式的資料儲存格 (加入 num_format 屬性)
+            # 貨幣格式
             create_fmt('dat_in_curr', 'data', num_format='$#,##0.00')
             create_fmt('dat_r_curr', 'data', right=2, num_format='$#,##0.00')
+            
+            # 專屬 Factory 合併格式 (底色 #FFC000, 粗體, 上下左右包圍粗線)
+            create_fmt('fact_merge', 'label', left=2, right=2, bottom=2, bg_color='#FFC000')
 
-            title_format = workbook.add_format({'font_name': 'Arial', 'bold': True, 'font_size': 14})
-            worksheet.write(0, 0, "2025 Program Sheet Auto-Generated", title_format)
+            # ========================================================
+            # 📝 【第一列大標題設定】: 合併 A1~Q1 (0~16)，高度 76.5
+            # ========================================================
+            header_text = (
+                "202X D240  PROGRAM NAME - CATEGORY NAME\n"
+                "Business award date: 202X/MM/DD ;  Venodr ID#\n"
+                "Sourcing:      ;   PD&D:   \n"
+                "TSS MR:      ;   Set date: 202X/MM/DD"
+            )
+            title_format = workbook.add_format({
+                'font_name': 'Arial', 'bold': True, 'font_size': 11,
+                'align': 'left', 'valign': 'top', 'text_wrap': True
+            })
+            worksheet.set_row(0, 76.50)
+            worksheet.merge_range(0, 0, 0, 16, header_text, title_format)
 
+            # 動態設定欄寬
             for i in range(3):
                 base = i * 6
                 worksheet.set_column(base, base, 13)       
@@ -98,10 +112,7 @@ if uploaded_file is not None:
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
-            # ========================================================
-            # 🛠️ 【資料抓取神小幫手】
-            # 直接比對 Data 的標題名稱，再也不怕欄位順序大亂！
-            # ========================================================
+            # 資料抓取小幫手
             def get_val(row_series, possible_cols):
                 for col in possible_cols:
                     if col in row_series.index:
@@ -110,14 +121,16 @@ if uploaded_file is not None:
                             return val
                 return ""
             
-            # 強制將金額轉換為浮點數，以便套用 $ 貨幣格式
             def to_float(val):
-                if not val:
-                    return ""
-                try:
-                    return float(val.replace('$', '').replace(',', '').strip())
-                except ValueError:
-                    return val
+                if not val: return ""
+                try: return float(val.replace('$', '').replace(',', '').strip())
+                except ValueError: return val
+                
+            # 將數量強制轉換為整數的工具 (去掉小數點)
+            def to_int_str(val):
+                if not val: return ""
+                try: return str(int(float(val.replace(',', '').strip())))
+                except ValueError: return val
 
             item_index = 0
             page_breaks = [] 
@@ -127,7 +140,8 @@ if uploaded_file is not None:
                     block_row = item_index // 3
                     block_col = item_index % 3
                     
-                    start_row = 2 + (block_row * 13)
+                    # 配合頂部的 header，全部往下推 1 列，並預留間距
+                    start_row = 3 + (block_row * 13)
                     start_col = block_col * 6
                     
                     worksheet.set_row(start_row, 234) 
@@ -139,54 +153,55 @@ if uploaded_file is not None:
                     if block_row > 0 and block_row % 2 == 0 and block_col == 0:
                         page_breaks.append(start_row - 1)
                     
-                    # ----------------------------------------------------
-                    # 🎯 【資料對應區】：完美匹配您的 Data 表頭名稱
-                    # ----------------------------------------------------
+                    # 🎯 資料對應區
                     dpci_val = get_val(row, ['DPCI'])
                     style_val = get_val(row, ['Manufacturer Style # *', 'Manufacturer Style #', 'Style Number'])
                     upc_val = get_val(row, ['Barcode', 'UPC#', 'UPC'])
+                    pid_val = get_val(row, ['Spark PID', 'PID']) # 新增抓取 PID
                     desc_val = get_val(row, ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'])
                     
-                    # 將 FCA 與 RETAIL 轉換為浮點數以套用 $ 格式
                     fca_val = to_float(get_val(row, ['FCA Factory City Unit Cost', 'FCA', 'FCA $']))
                     retail_val = to_float(get_val(row, ['Suggested Unit Retail', 'RETAIL', 'Retail$']))
-                    
                     pack_val = get_val(row, ['Retail Packaging Format (1) *', 'Retail Packaging Format (1)', 'Packaging'])
                     hs_val = get_val(row, ['HTS Code', 'HS NO'])
                     
-                    case_q = get_val(row, ['Case Unit Quantity', 'Casepack'])
-                    inner_q = get_val(row, ['Inner Pack Unit Quantity', 'Innerpack'])
+                    case_q = to_int_str(get_val(row, ['Case Unit Quantity', 'Casepack']))
+                    inner_q = to_int_str(get_val(row, ['Inner Pack Unit Quantity', 'Innerpack']))
                     pack_str = f"{case_q} / {inner_q}" if (case_q or inner_q) else ""
                     
                     mat_val = get_val(row, ['Primary Raw Material Type', 'Material', 'Main Raw Material *'])
-                    qty_val = get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY'])
+                    
+                    # QTY 套用去小數點函數
+                    qty_val = to_int_str(get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY']))
+                    
                     factory_val = get_val(row, ['Factory Name', 'Factory info.', 'Factory'])
                     
                     # Row 1
                     w_row(worksheet, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
                           'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # Row 2
-                    w_row(worksheet, start_row, start_col, 2, "UPC#:", upc_val, "", "", "",
-                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
+                    # Row 2 (新增 PID 於 E 欄)
+                    w_row(worksheet, start_row, start_col, 2, "UPC#:", upc_val, "", "PID:", pid_val,
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # Row 3
-                    w_row(worksheet, start_row, start_col, 3, "TCIN:", "", "", "", "",
-                          'lbl_l', 'dat_in', 'dat_in', 'dat_in', 'dat_r')
+                    # Row 3 (新增 SP 與 ☐ 勾選框)
+                    w_row(worksheet, start_row, start_col, 3, "TCIN:", "", "", "SP:", "☐",
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
+                    # 為 SP 的格子建立下拉選單 (支援打勾與空框)
+                    worksheet.data_validation(start_row + 3, start_col + 4, start_row + 3, start_col + 4,
+                                              {'validate': 'list', 'source': ['☑', '☐']})
                     
-                    # =========================================
-                    # Row 4 (Description: B7~E7 橫向合併)
-                    # =========================================
+                    # Row 4 (Description: 橫向合併)
                     worksheet.write(start_row + 4, start_col, "Description:", fmt['lbl_l'])
                     worksheet.merge_range(start_row + 4, start_col + 1, start_row + 4, start_col + 4, desc_val, fmt['dat_r'])
                     
-                    # Row 5 (FCA & RETAIL 套用貨幣格式)
+                    # Row 5
                     w_row(worksheet, start_row, start_col, 5, "FCA $:", fca_val, "", "RETAIL:", retail_val,
-                          'rlbl_l', 'dat_in_curr', 'dat_in', 'rlbl_in', 'dat_r_curr')
+                          'lbl_l', 'dat_in_curr', 'dat_in', 'lbl_in', 'dat_r_curr')
                     
                     # Row 6
                     w_row(worksheet, start_row, start_col, 6, "Packaging:", pack_val, "", "Red Seal:", "",
-                          'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
                     # Row 7
                     w_row(worksheet, start_row, start_col, 7, "HS NO:", hs_val, "", "Casepack:", pack_str,
@@ -194,19 +209,14 @@ if uploaded_file is not None:
                     
                     # Row 8
                     w_row(worksheet, start_row, start_col, 8, "Material:", mat_val, "", "QTY:", qty_val,
-                          'lbl_l', 'dat_in', 'dat_in', 'rlbl_in', 'dat_r')
+                          'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
                     
-                    # =========================================
-                    # Row 9 (Remark: B12~E12 橫向合併)
-                    # =========================================
+                    # Row 9 (Remark: 橫向合併)
                     worksheet.write(start_row + 9, start_col, "Remark:", fmt['lbl_l'])
                     worksheet.merge_range(start_row + 9, start_col + 1, start_row + 9, start_col + 4, "", fmt['dat_r'])
                     
-                    # =========================================
-                    # Row 10 (Factory: B13~E13 橫向合併，底部完美封邊)
-                    # =========================================
-                    worksheet.write(start_row + 10, start_col, "Factory:", fmt['lbl_lb'])
-                    worksheet.merge_range(start_row + 10, start_col + 1, start_row + 10, start_col + 4, factory_val, fmt['dat_rb'])
+                    # Row 10 (Factory: A~E 全部合併，套用橘黃底色)
+                    worksheet.merge_range(start_row + 10, start_col, start_row + 10, start_col + 4, f"Factory: {factory_val}", fmt['fact_merge'])
 
                     if temp_dir and dpci_val:
                         img_path = None
