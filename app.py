@@ -28,10 +28,7 @@ if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
 else:
     uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
 
-st.markdown("### ⚙️ 步驟 3：微調與生成")
-# 💡【修改點】移除縮放拉桿，替換為「畫質」拉桿，用來解決圖片過度壓縮的問題
-image_quality = st.slider("📸 萃取圖片畫質 (預設 95 高畫質。若產出檔案太大可調低)", min_value=50, max_value=100, value=95, step=5)
-
+# 💡【修改點】移除步驟 3 的微調拉桿，因為內部已設定 100% 完美置中與無損畫質
 if uploaded_data is not None:
     st.success("✅ 資料檔已就緒！")
     
@@ -82,19 +79,9 @@ if uploaded_data is not None:
                                         try:
                                             img = image_loader.get(img_cell)
                                             safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
-                                            img_path = os.path.join(temp_dir, f"{safe_name}.jpg")
-                                            
-                                            # 💡【修改點】白底圖層轉換邏輯：解決 PNG 去背圖變黑底的問題
-                                            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                                                img = img.convert('RGBA')
-                                                bg = Image.new('RGB', img.size, (255, 255, 255))
-                                                bg.paste(img, mask=img.split()[3])
-                                                img = bg
-                                            else:
-                                                img = img.convert('RGB')
-                                                
-                                            # 💡【修改點】套用使用者設定的高畫質存檔 (解決預設 75% 壓縮導致模糊的問題)
-                                            img.save(img_path, "JPEG", quality=image_quality)
+                                            # 💡【修改點】強制儲存為無損 PNG 格式！這將完美保留透明度與最高畫質
+                                            img_path = os.path.join(temp_dir, f"{safe_name}.png")
+                                            img.save(img_path, "PNG")
                                         except Exception:
                                             pass
                         else:
@@ -143,7 +130,6 @@ if uploaded_data is not None:
                         val = str(row_series[col]).strip()
                         if val.lower() not in ['nan', '', 'nat', 'none']:
                             return val
-                        
                 return ""
             
             def to_float(val):
@@ -312,7 +298,6 @@ if uploaded_data is not None:
                                     scale_w = MAX_BOX_WIDTH / img_w
                                     scale_h = MAX_BOX_HEIGHT / img_h
                                     
-                                    # 💡【修改點】永遠使用完美比例置中 (1.0)，移除使用者的縮放干預
                                     final_scale = min(scale_w, scale_h)
                                     
                                     final_w = img_w * final_scale
@@ -340,7 +325,6 @@ if uploaded_data is not None:
             factory_count = len(df['RawFactoryName'].unique())
             
             ws_master = workbook.add_worksheet('Master Sheet')
-            # 💡【修改點】移除傳遞 img_scale
             draw_cards_on_sheet(ws_master, df)
             
             ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
