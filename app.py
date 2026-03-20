@@ -14,34 +14,83 @@ from PIL import Image
 # --- 網頁介面設定 ---
 st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
 st.title("🚀 Program Sheet 自動生成器")
-st.markdown("請分別上傳「商品資料」與「圖片來源」，系統將瞬間為您排版整合！")
+st.markdown("請依序完成以下步驟，系統將瞬間為您篩選資料並排版整合！")
 
+# ========================================================
+# 📄 步驟 1：上傳商品資料
+# ========================================================
 st.markdown("### 📄 步驟 1：上傳商品資料")
 uploaded_data = st.file_uploader("請上傳包含完整報價、工廠等資訊的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
 
-st.markdown("### 🖼️ 步驟 2：上傳圖片來源 (二擇一)")
-img_option = st.radio("請選擇您的圖片提供方式：", ["📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)", "📊 上傳有縮圖的 Excel 檔 (自動萃取)"])
-
-uploaded_img = None
-if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
-    uploaded_img = st.file_uploader("請上傳 .zip 圖片壓縮檔", type=["zip"])
-else:
-    uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
-
 if uploaded_data is not None:
-    st.success("✅ 資料檔已就緒！")
+    st.success("✅ 資料檔已讀取！")
     
+    # 💡【核心升級】在按下按鈕前就先讀取資料，為了取得分類清單
+    try:
+        uploaded_data.seek(0)
+        df = pd.read_excel(uploaded_data, sheet_name="Data", engine="openpyxl")
+        df.columns = [str(c).strip() for c in df.columns]
+    except Exception as e:
+        uploaded_data.seek(0)
+        df = pd.read_excel(uploaded_data, engine="openpyxl")
+        df.columns = [str(c).strip() for c in df.columns]
+        
+    if 'DPCI' in df.columns:
+        df = df.dropna(subset=['DPCI'])
+
+    # ========================================================
+    # 🗂️ 步驟 2：資料動態篩選 (新增功能)
+    # ========================================================
+    st.markdown("### 🗂️ 步驟 2：選擇產出類別 (部門分工用)")
+    st.info("💡 系統已自動分析您的欄位。若只需產出特定類別供部門分工，請在此篩選；若留空則會產出全部商品。")
+    
+    # 自動偵測最可能是分類的欄位 (Category, Class, Tags...)
+    possible_cols = ['category', 'class', 'tags', 'department', 'division']
+    default_col_idx = 0
+    for idx, col in enumerate(df.columns):
+        if col.lower() in possible_cols:
+            default_col_idx = idx
+            break
+
+    # 選擇用來篩選的欄位
+    filter_col = st.selectbox("📌 1. 請確認用來分類的「欄位名稱」：", df.columns, index=default_col_idx)
+
+    # 抓取該欄位內所有不重複的值，並產生多選下拉清單
+    unique_vals = sorted([str(x).strip() for x in df[filter_col].dropna().unique() if str(x).strip() != ''])
+    selected_categories = st.multiselect(f"🎯 2. 請選擇要輸出的【{filter_col}】(可多選)：", unique_vals)
+
+    # 依據使用者的選擇進行資料過濾
+    if selected_categories:
+        df_filtered = df[df[filter_col].astype(str).str.strip().isin(selected_categories)].copy()
+        st.write(f"📊 目前已篩選：將產出 **{len(df_filtered)}** 筆商品 (原始總數 {len(df)} 筆)")
+    else:
+        df_filtered = df.copy()
+        st.write(f"📊 目前未套用篩選：將產出 **全部 {len(df_filtered)}** 筆商品")
+
+    # ========================================================
+    # 🖼️ 步驟 3：上傳圖片來源
+    # ========================================================
+    st.markdown("### 🖼️ 步驟 3：上傳圖片來源 (二擇一)")
+    img_option = st.radio("請選擇您的圖片提供方式：", ["📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)", "📊 上傳有縮圖的 Excel 檔 (自動萃取)"])
+
+    uploaded_img = None
+    if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
+        uploaded_img = st.file_uploader("請上傳 .zip 圖片壓縮檔", type=["zip"])
+    else:
+        uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
+
+    # ========================================================
+    # ⚙️ 步驟 4：執行生成
+    # ========================================================
+    st.markdown("### ⚙️ 步驟 4：執行生成")
     if st.button("✨ 生成 Program Sheet"):
-        with st.spinner("正在為您進行排版與處理圖片，請稍候 (若包含萃取圖片可能需要數十秒)..."):
+        
+        # 檢查篩選後的資料是否為空
+        if df_filtered.empty:
+            st.error("⚠️ 篩選後的資料為空，無法生成！請重新調整您的篩選條件。")
+            st.stop()
             
-            try:
-                df = pd.read_excel(uploaded_data, sheet_name="Data", engine="openpyxl")
-                df.columns = [str(c).strip() for c in df.columns]
-            except Exception as e:
-                uploaded_data.seek(0)
-                df = pd.read_excel(uploaded_data, engine="openpyxl")
-                df.columns = [str(c).strip() for c in df.columns]
-                
+        with st.spinner("正在為您進行排版與處理圖片，請稍候 (若包含萃取圖片可能需要數十秒)..."):
             temp_dir = tempfile.mkdtemp()
             
             if uploaded_img is not None:
@@ -90,9 +139,6 @@ if uploaded_data is not None:
             output = io.BytesIO()
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
             
-            # ========================================================
-            # 🖨️ 【列印與格式設定區】
-            # ========================================================
             base_props = {
                 'label': {'font_name': 'Arial', 'font_size': 10, 'bold': True, 'align': 'left', 'valign': 'vcenter'},
                 'data': {'font_name': 'Arial', 'font_size': 10, 'align': 'left', 'valign': 'vcenter', 'text_wrap': True},
@@ -147,13 +193,10 @@ if uploaded_data is not None:
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
-            df['RawFactoryName'] = df.apply(lambda r: get_val(r, ['Factory Name', 'Factory info.', 'Factory']), axis=1)
+            # 💡【重要】後續所有的排版與工廠分類，全部改用「df_filtered」(已篩選過的資料)
+            df_filtered['RawFactoryName'] = df_filtered.apply(lambda r: get_val(r, ['Factory Name', 'Factory info.', 'Factory']), axis=1)
+            df_filtered = df_filtered.sort_values(by='RawFactoryName').reset_index(drop=True)
 
-            df = df.sort_values(by='RawFactoryName').reset_index(drop=True)
-
-            # ========================================================
-            # 📝 【核心畫布功能】
-            # ========================================================
             def draw_cards_on_sheet(ws, current_df):
                 ws.set_landscape()
                 ws.set_margins(left=0.3, right=0.3, top=0.4, bottom=0.4)
@@ -177,7 +220,6 @@ if uploaded_data is not None:
                 ws.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
                 ws.merge_range(1, 2, 1, 4, "", fmt['hdr_input']) 
                 ws.write(1, 6, "Vendor ID#:", fmt['hdr_lbl'])                 
-                # 💡【修改點】已經移除了下拉選單設定，恢復為純空白輸入框
                 ws.merge_range(1, 7, 1, 9, "", fmt['hdr_input'])
 
                 ws.set_row(2, 20)
@@ -323,19 +365,19 @@ if uploaded_data is not None:
             # ========================================================
             # 🚀 【自動生成頁籤流程】
             # ========================================================
-            factory_count = len(df['RawFactoryName'].unique())
+            factory_count = len(df_filtered['RawFactoryName'].unique())
             
             ws_master = workbook.add_worksheet('Master Sheet')
-            draw_cards_on_sheet(ws_master, df)
+            draw_cards_on_sheet(ws_master, df_filtered)
             
             ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
             ws_master.write(1, 16, factory_count, fmt['hdr_input'])
             ws_master.write(2, 15, "Item#:", fmt['hdr_lbl'])
-            ws_master.write(2, 16, len(df), fmt['hdr_input'])
+            ws_master.write(2, 16, len(df_filtered), fmt['hdr_input'])
             
             used_sheet_names = set(['Master Sheet'])
             
-            for factory, group_df in df.groupby('RawFactoryName'):
+            for factory, group_df in df_filtered.groupby('RawFactoryName'):
                 clean_name = str(factory).strip()
                 if not clean_name: clean_name = "Unknown Factory"
                 clean_name = re.sub(r'[\\/*?:\[\]]', '_', clean_name)[:28]
@@ -353,7 +395,7 @@ if uploaded_data is not None:
 
             workbook.close()
             
-            st.success(f"排版完成！總表共包含 {len(df)} 筆商品，並已自動為您拆分成 {factory_count} 個工廠專屬頁籤。")
+            st.success(f"排版完成！總表共包含 {len(df_filtered)} 筆商品，並已自動為您拆分成 {factory_count} 個工廠專屬頁籤。")
             st.download_button(
                 label="📥 點此下載最新 Program Sheet",
                 data=output.getvalue(),
