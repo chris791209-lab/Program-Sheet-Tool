@@ -147,7 +147,12 @@ if uploaded_data is not None:
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
+            # 萃取原始工廠名稱
             df['RawFactoryName'] = df.apply(lambda r: get_val(r, ['Factory Name', 'Factory info.', 'Factory']), axis=1)
+
+            # 💡【修改點 2】在進入排版前，將整個資料表依據「工廠名稱」進行排序！
+            # 這樣 Master Sheet 的商品就會自動把同工廠的歸類在一起
+            df = df.sort_values(by='RawFactoryName').reset_index(drop=True)
 
             # ========================================================
             # 📝 【核心畫布功能】
@@ -175,8 +180,9 @@ if uploaded_data is not None:
                 ws.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
                 ws.merge_range(1, 2, 1, 4, "", fmt['hdr_input']) 
                 ws.write(1, 6, "Vendor ID#:", fmt['hdr_lbl'])                 
-                # 💡【修改點】原本的 "1985373" 已改為空字串 ""
-                ws.merge_range(1, 7, 1, 9, "", fmt['hdr_input'])       
+                ws.merge_range(1, 7, 1, 9, "", fmt['hdr_input'])
+                # 💡【修改點 1】新增 Vendor ID# 的下拉選單
+                ws.data_validation(1, 7, 1, 9, {'validate': 'list', 'source': ['1985373', '2004911']})
 
                 ws.set_row(2, 20)
                 ws.merge_range(2, 0, 2, 1, "Sourcing:", fmt['hdr_lbl'])
