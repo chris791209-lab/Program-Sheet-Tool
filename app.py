@@ -13,6 +13,46 @@ from PIL import Image
 
 # --- 網頁介面設定 ---
 st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
+
+# ==========================================
+# 0. 密碼保護機制
+# ==========================================
+def check_password():
+    """回傳 True 代表使用者輸入了正確的密碼"""
+    def password_entered():
+        if st.session_state["password"] == st.secrets["app_password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "🔒 請輸入 AE 部門共用密碼以啟用工具：", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        return False
+    
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "🔒 請輸入 AE 部門共用密碼以啟用工具：", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("❌ 密碼錯誤，請重新輸入。")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
+
+# ========================================================
+# 🚀 以下為登入後的主要系統介面
+# ========================================================
 st.title("🚀 Program Sheet 自動生成器")
 st.markdown("請依序完成以下步驟，系統將瞬間為您篩選資料並排版整合！")
 
@@ -256,7 +296,6 @@ if uploaded_data is not None:
                         pid_val = get_val(row, ['Spark PID', 'PID']) 
                         desc_val = get_val(row, ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'])
                         
-                        # 💡【修改點】防呆消除小數點處理，轉為整數避免 .0 的出現
                         try:
                             if upc_val:
                                 upc_val = str(int(float(upc_val)))
