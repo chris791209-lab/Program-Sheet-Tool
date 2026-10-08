@@ -3,7 +3,6 @@ import pandas as pd
 import io
 import os
 import xlsxwriter
-import zipfile
 import tempfile
 import re 
 import openpyxl
@@ -37,6 +36,21 @@ FIELD_ALIASES = {
     'factory_id':   ['Factory ID', 'Import Vendor ID'],
     'order_point':  ['Import Vendor Order Point'],
 }
+DEFAULT_PROGRAM_NAME = "202X D240  PROGRAM NAME"
+
+
+def program_name_from_filename(filename):
+    """
+    由 PCN 檔名推出 Program 名稱，用於輸出檔名與表頭標題。
+        '2027_C2_D240_Easter.xlsx'      -> '2027 C2 D240 Easter'
+        '2027 C2 D240 Easter (1).xlsx'  -> '2027 C2 D240 Easter'
+    """
+    stem = os.path.splitext(os.path.basename(str(filename)))[0]
+    stem = re.sub(r'\s*\(\d+\)\s*$', '', stem)      # 瀏覽器重複下載加上的 " (1)"
+    stem = re.sub(r'[_\s]+', ' ', stem).strip()      # 底線 / 連續空白 -> 單一空白
+    return stem or DEFAULT_PROGRAM_NAME
+
+
 # 缺少時會跳出警告的欄位 (卡片標籤名稱)
 REQUIRED_FIELDS = {
     'dpci': 'DPCI', 'style': 'Style', 'upc': 'UPC#', 'pid': 'PID', 'desc': 'Description',
@@ -89,13 +103,20 @@ st.title("🚀 Program Sheet 自動生成器")
 st.markdown("請依序完成以下步驟，系統將瞬間為您篩選資料並排版整合！")
 
 # ========================================================
-# 📄 步驟 1：上傳商品資料
+# 📄 步驟 1：上傳商品資料 (PCN)
 # ========================================================
-st.markdown("### 📄 步驟 1：上傳商品資料")
+st.markdown("### 📄 步驟 1：上傳商品資料 (PCN)")
 uploaded_data = st.file_uploader("請上傳包含完整報價、工廠等資訊的 Excel 檔 (.xlsm / .xlsx)", type=["xlsm", "xlsx"])
 
 if uploaded_data is not None:
     st.success("✅ 資料檔已讀取！")
+
+    # Program 名稱：預設取自 PCN 檔名，同時用於下載檔名與每個頁籤左上角的標題
+    program_name = st.text_input(
+        "📝 Program 名稱 (自動取自 PCN 檔名，可修改；會用於下載檔名與表頭標題)",
+        value=program_name_from_filename(getattr(uploaded_data, 'name', '')),
+    )
+    program_name = (program_name or '').strip() or DEFAULT_PROGRAM_NAME
     
     try:
         uploaded_data.seek(0)
@@ -165,14 +186,8 @@ if uploaded_data is not None:
     # ========================================================
     # 🖼️ 步驟 3：上傳圖片來源
     # ========================================================
-    st.markdown("### 🖼️ 步驟 3：上傳圖片來源 (二擇一)")
-    img_option = st.radio("請選擇您的圖片提供方式：", ["📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)", "📊 上傳有縮圖的 Excel 檔 (自動萃取)"])
-
-    uploaded_img = None
-    if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
-        uploaded_img = st.file_uploader("請上傳 .zip 圖片壓縮檔", type=["zip"])
-    else:
-        uploaded_img = st.file_uploader("請上傳含有 Thumbnail (縮圖) 欄位的 Excel 檔", type=["xlsx", "xlsm"])
+    st.markdown("### 🖼️ 步驟 3：上傳圖片來源")
+    uploaded_img = st.file_uploader("📊 上傳有縮圖的 Excel 檔 (SPK)", type=["xlsx", "xlsm"])
 
     # ========================================================
     # ⚙️ 步驟 4：執行生成
@@ -188,47 +203,43 @@ if uploaded_data is not None:
             temp_dir = tempfile.mkdtemp()
             
             if uploaded_img is not None:
-                if img_option == "📁 上傳 ZIP 壓縮檔 (內含 JPG/PNG)":
-                    with zipfile.ZipFile(uploaded_img, 'r') as zip_ref:
-                        zip_ref.extractall(temp_dir)
-                else: 
-                    try:
-                        wb = openpyxl.load_workbook(uploaded_img, data_only=True)
-                        sheet_name_to_use = "Products" if "Products" in wb.sheetnames else ("Data" if "Data" in wb.sheetnames else wb.sheetnames[0])
-                        sheet = wb[sheet_name_to_use]
-                        image_loader = SheetImageLoader(sheet)
+                try:
+                    wb = openpyxl.load_workbook(uploaded_img, data_only=True)
+                    sheet_name_to_use = "Products" if "Products" in wb.sheetnames else ("Data" if "Data" in wb.sheetnames else wb.sheetnames[0])
+                    sheet = wb[sheet_name_to_use]
+                    image_loader = SheetImageLoader(sheet)
 
-                        header_row, thumb_col, dpci_col = None, None, None
-                        for r in range(1, 15): 
-                            for c in range(1, sheet.max_column + 1):
-                                val = str(sheet.cell(row=r, column=c).value).strip().lower()
-                                if val == 'thumbnail':
-                                    thumb_col = c
-                                    header_row = r
-                                elif val in ['dpci', 'pid', 'spark pid']:
-                                    dpci_col = c
-                            if thumb_col and dpci_col:
-                                break
-
+                    header_row, thumb_col, dpci_col = None, None, None
+                    for r in range(1, 15): 
+                        for c in range(1, sheet.max_column + 1):
+                            val = str(sheet.cell(row=r, column=c).value).strip().lower()
+                            if val == 'thumbnail':
+                                thumb_col = c
+                                header_row = r
+                            elif val in ['dpci', 'pid', 'spark pid']:
+                                dpci_col = c
                         if thumb_col and dpci_col:
-                            thumb_letter = get_column_letter(thumb_col)
-                            for r in range(header_row + 1, sheet.max_row + 1):
-                                dpci_val = str(sheet.cell(row=r, column=dpci_col).value).strip()
-                                img_cell = f"{thumb_letter}{r}"
+                            break
 
-                                if dpci_val and dpci_val.lower() not in ['none', 'nan', '']:
-                                    if image_loader.image_in(img_cell):
-                                        try:
-                                            img = image_loader.get(img_cell)
-                                            safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
-                                            img_path = os.path.join(temp_dir, f"{safe_name}.png")
-                                            img.save(img_path, "PNG")
-                                        except Exception:
-                                            pass
-                        else:
-                            st.warning("⚠️ 在圖片 Excel 中找不到 'Thumbnail' 標題。")
-                    except Exception as e:
-                        st.warning(f"⚠️ 解析 Excel 圖片失敗: {e}")
+                    if thumb_col and dpci_col:
+                        thumb_letter = get_column_letter(thumb_col)
+                        for r in range(header_row + 1, sheet.max_row + 1):
+                            dpci_val = str(sheet.cell(row=r, column=dpci_col).value).strip()
+                            img_cell = f"{thumb_letter}{r}"
+
+                            if dpci_val and dpci_val.lower() not in ['none', 'nan', '']:
+                                if image_loader.image_in(img_cell):
+                                    try:
+                                        img = image_loader.get(img_cell)
+                                        safe_name = "".join(x for x in dpci_val if x.isalnum() or x in "-_")
+                                        img_path = os.path.join(temp_dir, f"{safe_name}.png")
+                                        img.save(img_path, "PNG")
+                                    except Exception:
+                                        pass
+                    else:
+                        st.warning("⚠️ 在 SPK 檔中找不到 'Thumbnail' 或 DPCI / PID 標題，本次不會放入圖片。")
+                except Exception as e:
+                    st.warning(f"⚠️ 解析 SPK 圖片失敗: {e}")
             
             output = io.BytesIO()
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -259,6 +270,8 @@ if uploaded_data is not None:
             create_fmt('fact_merge', 'label', left=2, right=2, bottom=2, bg_color='#FFC000')
 
             create_fmt('hdr_title', 'label', font_size=13, align='left')
+            # Program 名稱長度每季不同，過長時自動縮小字級，避免被右側 CATEGORY 欄截斷
+            create_fmt('hdr_title_name', 'label', font_size=13, align='left', shrink=True)
             create_fmt('hdr_lbl', 'label', align='left')
             create_fmt('hdr_input', 'data', align='left', bg_color='#F4F4F4', border=1)
 
@@ -330,7 +343,7 @@ if uploaded_data is not None:
                     ws.set_column(base + 5, base + 5, 4)  
 
                 ws.set_row(0, 30)
-                ws.merge_range(0, 0, 0, 1, "202X D240  PROGRAM NAME - ", fmt['hdr_title'])
+                ws.merge_range(0, 0, 0, 1, f"{program_name} - ", fmt['hdr_title_name'])
                 ws.merge_range(0, 2, 0, 4, "CATEGORY", fmt['hdr_title'])
                 ws.data_validation(0, 2, 0, 4, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
 
@@ -561,11 +574,11 @@ if uploaded_data is not None:
                 st.warning("⚠️ 以下商品的 Import Vendor Order Point 無法解析出結尾號碼，Factory 列會少一段：\n\n"
                            + "\n".join(f"- {x}" for x in issues['order_point']))
             if issues['no_image']:
-                st.warning(f"⚠️ 以下 {len(issues['no_image'])} 筆商品找不到對應圖片 (圖片檔名需為 DPCI 或 PID)：\n\n"
+                st.warning(f"⚠️ 以下 {len(issues['no_image'])} 筆商品在 SPK 檔中找不到對應縮圖 (以 DPCI / PID 比對)：\n\n"
                            + "、".join(issues['no_image']))
             st.download_button(
                 label="📥 點此下載最新 Program Sheet",
                 data=output.getvalue(),
-                file_name="Program_Sheet_Auto.xlsx",
+                file_name=re.sub(r'[\\/:*?"<>|]', '_', program_name) + " Program Sheet.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
