@@ -183,6 +183,10 @@ if uploaded_data is not None:
         df_filtered = df.copy()
         st.write(f"📊 目前未套用篩選：將產出 **全部 {len(df_filtered)}** 筆商品")
 
+    # 表頭 CATEGORY：依 Subclass Name 篩選時，直接帶入所選類別；
+    # 沒篩選、或是依 Factory Name 篩選 (工廠名不是類別) 時，該格留白。
+    category_text = " / ".join(selected_categories) if (selected_categories and filter_col == 'Subclass Name') else ""
+
     # ========================================================
     # 🖼️ 步驟 3：上傳圖片來源
     # ========================================================
@@ -343,9 +347,10 @@ if uploaded_data is not None:
                     ws.set_column(base + 5, base + 5, 4)  
 
                 ws.set_row(0, 30)
-                ws.merge_range(0, 0, 0, 1, f"{program_name} - ", fmt['hdr_title_name'])
-                ws.merge_range(0, 2, 0, 4, "CATEGORY", fmt['hdr_title'])
-                ws.data_validation(0, 2, 0, 4, {'validate': 'list', 'source': ['Decor', 'Kids Activity', 'Party', 'Giveaways', 'TOT']})
+                # 有類別時標題為「Program 名稱 - 類別」；沒有類別時只留 Program 名稱，右側留白 (無預設字樣、無下拉選單)
+                title_text = f"{program_name} - " if category_text else program_name
+                ws.merge_range(0, 0, 0, 1, title_text, fmt['hdr_title_name'])
+                ws.merge_range(0, 2, 0, 4, category_text, fmt['hdr_title_name'])
 
                 ws.set_row(1, 20)
                 ws.merge_range(1, 0, 1, 1, "Business award date:", fmt['hdr_lbl'])
