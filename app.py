@@ -13,6 +13,38 @@ from PIL import Image
 
 # --- 網頁介面設定 ---
 st.set_page_config(page_title="Program Sheet 生成器", layout="centered")
+# ==========================================
+# 欄位別名表 (單一來源)
+# 卡片欄位 -> master 可能出現的欄名，由左到右找到有值的為止。
+# 每季欄名會變 (例如結尾多一個 " *")，新欄名請加在這裡，不要寫死在下方。
+# ==========================================
+FIELD_ALIASES = {
+    'dpci':         ['DPCI'],
+    'style':        ['Manufacturer Style # *', 'Manufacturer Style #', 'Style Number'],
+    'upc':          ['Barcode', 'UPC#', 'UPC'],
+    'pid':          ['Spark PID', 'PID'],
+    'desc':         ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'],
+    'fca':          ['FCA Factory City Unit Cost', 'FCA', 'FCA $'],
+    'fob':          ['FOB Unit Cost', 'FOB', 'FOB $'],
+    'retail':       ['Suggested Unit Retail', 'RETAIL', 'Retail$'],
+    'packaging':    ['Retail Packaging Format (1) *', 'Retail Packaging Format (1)', 'Packaging'],
+    'hs':           ['HTS Code', 'HS NO'],
+    'case':         ['Case Unit Quantity', 'Casepack'],
+    'inner':        ['Inner Pack Unit Quantity', 'Innerpack'],
+    'material':     ['Primary Raw Material Type', 'Material', 'Main Raw Material *'],
+    'qty':          ['Ent Ttl Rcpt U', 'Total Units', 'QTY'],
+    'factory_name': ['Factory Name', 'Factory info.', 'Factory'],
+    'factory_id':   ['Factory ID', 'Import Vendor ID'],
+    'order_point':  ['Import Vendor Order Point'],
+}
+# 缺少時會跳出警告的欄位 (卡片標籤名稱)
+REQUIRED_FIELDS = {
+    'dpci': 'DPCI', 'style': 'Style', 'upc': 'UPC#', 'pid': 'PID', 'desc': 'Description',
+    'retail': 'RETAIL', 'case': 'Casepack (Case)', 'inner': 'Casepack (Inner)', 'qty': 'QTY',
+    'factory_name': 'Factory Name', 'factory_id': 'Factory ID', 'order_point': 'Order Point',
+}
+# 有些季別的 master 本來就沒有的欄位，缺少時只提示、不警告
+OPTIONAL_FIELDS = {'packaging': 'Packaging', 'hs': 'HS NO', 'material': 'Material'}
 
 # ==========================================
 # 0. 密碼保護機制
@@ -76,6 +108,34 @@ if uploaded_data is not None:
         
     if 'DPCI' in df.columns:
         df = df.dropna(subset=['DPCI'])
+    # --- Shipper (陳列道具) 排除：Program Sheet 只列商品，Shipper 屬於 PO GRID ---
+    ship_mask = pd.Series(False, index=df.index)
+    for c in FIELD_ALIASES['desc']:
+        if c in df.columns:
+            ship_mask = ship_mask | df[c].astype(str).str.strip().str.lower().str.startswith('shipper:')
+    shipper_count = int(ship_mask.sum())
+    if shipper_count:
+        shipper_ids = "、".join(str(x) for x in df.loc[ship_mask, 'DPCI'].tolist()) if 'DPCI' in df.columns else ""
+        exclude_shippers = st.checkbox(
+            f"🚫 排除 {shipper_count} 筆 Shipper 陳列道具 (描述以「Shipper:」開頭，無圖片、無 QTY)",
+            value=True,
+            help=shipper_ids or None,
+        )
+        if exclude_shippers:
+            df = df[~ship_mask].copy()
+
+    # --- 欄位檢查：欄名每季都會變，找不到時要講出來，不能靜默留空 ---
+    missing_fields = [label for key, label in REQUIRED_FIELDS.items()
+                      if not any(c in df.columns for c in FIELD_ALIASES[key])]
+    if not any(c in df.columns for c in FIELD_ALIASES['fca'] + FIELD_ALIASES['fob']):
+        missing_fields.append('FCA $')
+    if missing_fields:
+        st.warning("⚠️ 資料檔中找不到以下卡片欄位對應的欄名，生成後這些欄位會是空白："
+                   f"**{'、'.join(missing_fields)}**。若本季欄名有變動，請將新欄名加入程式上方的 FIELD_ALIASES。")
+    absent_optional = [label for key, label in OPTIONAL_FIELDS.items()
+                       if not any(c in df.columns for c in FIELD_ALIASES[key])]
+    if absent_optional:
+        st.caption(f"ℹ️ 本季資料檔沒有這些選填欄位，卡片上會留空：{'、'.join(absent_optional)}")
 
     # ========================================================
     # 🗂️ 步驟 2：資料動態篩選
@@ -202,23 +262,48 @@ if uploaded_data is not None:
             create_fmt('hdr_lbl', 'label', align='left')
             create_fmt('hdr_input', 'data', align='left', bg_color='#F4F4F4', border=1)
 
+            # 生成過程中發現的資料狀況，結束後統一顯示 (只在 Master Sheet 那一輪記錄)
+            issues = {'fob': [], 'order_point': [], 'qty_fraction': [], 'no_image': [], 'card_error': []}
+
             def get_val(row_series, possible_cols):
                 for col in possible_cols:
                     if col in row_series.index:
-                        val = str(row_series[col]).strip()
+                        raw = row_series[col]
+                        # 整數被 Excel/pandas 讀成浮點數時 (例如 397959.0)，還原成整數再轉字串
+                        if isinstance(raw, float) and not pd.isna(raw) and raw.is_integer():
+                            raw = int(raw)
+                        val = str(raw).strip()
                         if val.lower() not in ['nan', '', 'nat', 'none']:
                             return val
                 return ""
-            
+
             def to_float(val):
                 if not val: return ""
                 try: return float(val.replace('$', '').replace(',', '').strip())
                 except ValueError: return val
-                
+
             def to_int_str_comma(val):
+                # 必須四捨五入：Excel 會把 125454 存成 125453.99999999999，
+                # 直接 int() 會無條件捨去而少 1。
                 if not val: return ""
-                try: return f"{int(float(str(val).replace(',', '').strip())):,}"
+                try: return f"{int(round(float(str(val).replace(',', '').strip()))):,}"
                 except ValueError: return str(val)
+
+            def order_point_suffix(val):
+                """
+                取 Import Vendor Order Point 最後一個連字號後面的數字。
+                    'Natty Boy - 240-20'                                  -> '20'
+                    '397959 - Ganzhou Keshou Arts & Crafts Co., Ltd.-62'  -> '62'
+                    'Wenzhou -240-8'                                      -> '8'
+                舊寫法取最後兩個字元，個位數會變成 '-8'，三位數會少一碼。
+                """
+                val = str(val).strip()
+                m = re.search(r'-\s*(\d+)\s*$', val)
+                if m:
+                    return m.group(1)
+                if re.fullmatch(r'\d+', val):
+                    return val
+                return ""
                 
             def w_row(ws, s_row, s_col, r_off, c0, c1, c2, c3, c4, f0, f1, f2, f3, f4):
                 ws.write(s_row + r_off, s_col + 0, c0, fmt[f0])
@@ -227,10 +312,10 @@ if uploaded_data is not None:
                 ws.write(s_row + r_off, s_col + 3, c3, fmt[f3])
                 ws.write(s_row + r_off, s_col + 4, c4, fmt[f4])
 
-            df_filtered['RawFactoryName'] = df_filtered.apply(lambda r: get_val(r, ['Factory Name', 'Factory info.', 'Factory']), axis=1)
+            df_filtered['RawFactoryName'] = df_filtered.apply(lambda r: get_val(r, FIELD_ALIASES['factory_name']), axis=1)
             df_filtered = df_filtered.sort_values(by='RawFactoryName').reset_index(drop=True)
 
-            def draw_cards_on_sheet(ws, current_df):
+            def draw_cards_on_sheet(ws, current_df, track=False):
                 ws.set_landscape()
                 ws.set_margins(left=0.3, right=0.3, top=0.4, bottom=0.4)
                 ws.fit_to_pages(1, 0)
@@ -290,40 +375,60 @@ if uploaded_data is not None:
                         if block_row > 0 and block_row % 2 == 0 and block_col == 0:
                             page_breaks.append(start_row - 1)
                         
-                        dpci_val = get_val(row, ['DPCI'])
-                        style_val = get_val(row, ['Manufacturer Style # *', 'Manufacturer Style #', 'Style Number'])
-                        upc_val = get_val(row, ['Barcode', 'UPC#', 'UPC'])
-                        pid_val = get_val(row, ['Spark PID', 'PID']) 
-                        desc_val = get_val(row, ['Vendor Product Description *', 'Vendor Product Description', 'Product Description'])
-                        
+                        dpci_val = get_val(row, FIELD_ALIASES['dpci'])
+                        style_val = get_val(row, FIELD_ALIASES['style'])
+                        upc_val = get_val(row, FIELD_ALIASES['upc'])
+                        pid_val = get_val(row, FIELD_ALIASES['pid'])
+                        desc_val = get_val(row, FIELD_ALIASES['desc'])
+
                         try:
                             if upc_val:
                                 upc_val = str(int(float(upc_val)))
                         except Exception:
                             pass
-                        
-                        fca_val = to_float(get_val(row, ['FCA Factory City Unit Cost', 'FCA', 'FCA $']))
-                        retail_val = to_float(get_val(row, ['Suggested Unit Retail', 'RETAIL', 'Retail$']))
-                        pack_val = get_val(row, ['Retail Packaging Format (1) *', 'Retail Packaging Format (1)', 'Packaging'])
-                        hs_val = get_val(row, ['HTS Code', 'HS NO'])
-                        
-                        case_q = get_val(row, ['Case Unit Quantity', 'Casepack'])
-                        inner_q = get_val(row, ['Inner Pack Unit Quantity', 'Innerpack'])
+
+                        # 成本：優先 FCA；FCA 空白 (FOB-only 商品) 時改用 FOB，並列入提醒
+                        cost_raw = get_val(row, FIELD_ALIASES['fca'])
+                        cost_label = "FCA $:"
+                        if not cost_raw:
+                            cost_raw = get_val(row, FIELD_ALIASES['fob'])
+                            if cost_raw:
+                                cost_label = "FOB $:"   # 標籤跟著成本基礎走，避免 FOB 金額掛在 FCA 標籤下
+                                if track:
+                                    issues['fob'].append(dpci_val)
+                        fca_val = to_float(cost_raw)
+                        retail_val = to_float(get_val(row, FIELD_ALIASES['retail']))
+                        pack_val = get_val(row, FIELD_ALIASES['packaging'])
+                        hs_val = get_val(row, FIELD_ALIASES['hs'])
+
+                        case_q = get_val(row, FIELD_ALIASES['case'])
+                        inner_q = get_val(row, FIELD_ALIASES['inner'])
                         try: case_q = str(int(float(case_q))) if case_q else ""
                         except: pass
                         try: inner_q = str(int(float(inner_q))) if inner_q else ""
                         except: pass
                         pack_str = f"{case_q} / {inner_q}" if (case_q or inner_q) else ""
-                        
-                        mat_val = get_val(row, ['Primary Raw Material Type', 'Material', 'Main Raw Material *'])
-                        qty_val = to_int_str_comma(get_val(row, ['Ent Ttl Rcpt U', 'Total Units', 'QTY']))
-                        
-                        raw_factory_name = get_val(row, ['Factory Name', 'Factory info.', 'Factory'])
-                        raw_factory_id = get_val(row, ['Factory ID', 'Import Vendor ID'])
-                        raw_vendor_op = get_val(row, ['Import Vendor Order Point'])
-                        op_last_two = raw_vendor_op[-2:] if len(raw_vendor_op) >= 2 else raw_vendor_op
-                        
-                        fact_parts = [p for p in [raw_factory_name, raw_factory_id, op_last_two] if p]
+
+                        mat_val = get_val(row, FIELD_ALIASES['material'])
+                        qty_raw = get_val(row, FIELD_ALIASES['qty'])
+                        qty_val = to_int_str_comma(qty_raw)
+                        # QTY 理論上是整數。極小的浮點誤差 (…99999999999) 直接四捨五入吸收；
+                        # 若真的帶小數，代表 master 資料有問題，要提醒而不是默默進位。
+                        try:
+                            q = float(qty_raw.replace(',', ''))
+                            if abs(q - round(q)) > 0.001 and track:
+                                issues['qty_fraction'].append(f"{dpci_val}（{qty_raw}）")
+                        except ValueError:
+                            pass
+
+                        raw_factory_name = get_val(row, FIELD_ALIASES['factory_name'])
+                        raw_factory_id = get_val(row, FIELD_ALIASES['factory_id'])
+                        raw_vendor_op = get_val(row, FIELD_ALIASES['order_point'])
+                        op_suffix = order_point_suffix(raw_vendor_op)
+                        if raw_vendor_op and not op_suffix and track:
+                            issues['order_point'].append(f"{dpci_val}（{raw_vendor_op}）")
+
+                        fact_parts = [p for p in [raw_factory_name, raw_factory_id, op_suffix] if p]
                         factory_combined = " / ".join(fact_parts)
                         
                         w_row(ws, start_row, start_col, 1, "DPCI:", dpci_val, "", "Style:", style_val,
@@ -338,7 +443,7 @@ if uploaded_data is not None:
                         ws.write(start_row + 4, start_col, "Description:", fmt['lbl_l'])
                         ws.merge_range(start_row + 4, start_col + 1, start_row + 4, start_col + 4, desc_val, fmt['dat_r'])
                         
-                        w_row(ws, start_row, start_col, 5, "FCA $:", fca_val, "", "RETAIL:", retail_val,
+                        w_row(ws, start_row, start_col, 5, cost_label, fca_val, "", "RETAIL:", retail_val,
                               'lbl_l', 'dat_in_curr', 'dat_in', 'lbl_in', 'dat_r_curr')
                         w_row(ws, start_row, start_col, 6, "Packaging:", pack_val, "", "Red Seal:", "",
                               'lbl_l', 'dat_in', 'dat_in', 'lbl_in', 'dat_r')
@@ -392,11 +497,17 @@ if uploaded_data is not None:
                                                     {'x_scale': final_scale, 'y_scale': final_scale, 
                                                      'x_offset': max(x_offset, 5), 'y_offset': max(y_offset, 5)})
                                 except Exception as e:
-                                    pass
+                                    if track:
+                                        issues['no_image'].append(dpci_val or pid_val or '(無 DPCI)')
+                            elif track and uploaded_img is not None:
+                                issues['no_image'].append(dpci_val or pid_val or '(無 DPCI)')
                         
                         item_index += 1
                     except Exception as e:
-                        continue 
+                        if track:
+                            issues['card_error'].append(f"{row.get('DPCI', '(無 DPCI)')}：{e}")
+                        item_index += 1
+                        continue
                 
                 if page_breaks:
                     ws.set_h_pagebreaks(page_breaks)
@@ -407,7 +518,7 @@ if uploaded_data is not None:
             factory_count = len(df_filtered['RawFactoryName'].unique())
             
             ws_master = workbook.add_worksheet('Master Sheet')
-            draw_cards_on_sheet(ws_master, df_filtered)
+            draw_cards_on_sheet(ws_master, df_filtered, track=True)
             
             ws_master.write(1, 15, "Factory#:", fmt['hdr_lbl'])
             ws_master.write(1, 16, factory_count, fmt['hdr_input'])
@@ -435,6 +546,23 @@ if uploaded_data is not None:
             workbook.close()
             
             st.success(f"排版完成！總表共包含 {len(df_filtered)} 筆商品，並已自動為您拆分成 {factory_count} 個工廠專屬頁籤。")
+            # --- 資料提醒：以下狀況不會中斷生成，但交付前請確認 ---
+            if issues['card_error']:
+                st.error("❌ 以下商品排版時發生錯誤，卡片內容可能不完整，請檢查原始資料：\n\n"
+                         + "\n".join(f"- {x}" for x in issues['card_error']))
+            if issues['fob']:
+                st.warning(f"⚠️ 以下 {len(issues['fob'])} 筆商品沒有 FCA 成本，已改用 FOB 成本填入 "
+                           "(卡片標籤已自動改為「FOB $:」)：\n\n"
+                           + "、".join(issues['fob']))
+            if issues['qty_fraction']:
+                st.warning("⚠️ 以下商品的 QTY 在資料檔中不是整數，卡片上已四捨五入，請回頭確認 master：\n\n"
+                           + "\n".join(f"- {x}" for x in issues['qty_fraction']))
+            if issues['order_point']:
+                st.warning("⚠️ 以下商品的 Import Vendor Order Point 無法解析出結尾號碼，Factory 列會少一段：\n\n"
+                           + "\n".join(f"- {x}" for x in issues['order_point']))
+            if issues['no_image']:
+                st.warning(f"⚠️ 以下 {len(issues['no_image'])} 筆商品找不到對應圖片 (圖片檔名需為 DPCI 或 PID)：\n\n"
+                           + "、".join(issues['no_image']))
             st.download_button(
                 label="📥 點此下載最新 Program Sheet",
                 data=output.getvalue(),
